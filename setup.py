@@ -39,6 +39,7 @@ def required(requirements_file):
                 if pkg.strip() and not pkg.startswith("#")]
 
 
+PLUGIN_ENTRY_POINT = 'hivemind-websocket-plugin=hivemind_websocket_protocol:HiveMindWebsocketProtocol'
 
 setup(
     name='hivemind-websocket-protocol',
@@ -48,6 +49,7 @@ setup(
     license='Apache-2.0',
     author='jarbasAi',
     install_requires=required("requirements.txt"),
+    entry_points={'hivemind.network.protocol': PLUGIN_ENTRY_POINT},
     author_email='jarbasai@mailfence.com',
     description='websocket network protocol for hivemind-core'
 )
