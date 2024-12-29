@@ -1,11 +1,12 @@
 import asyncio
+import dataclasses
 import os
 import os.path
 import random
 from os import makedirs
 from os.path import exists, join
 from socket import gethostname
-from typing import Optional, Tuple
+from typing import Dict, Any, Optional, Tuple
 
 import pybase64
 from OpenSSL import crypto
@@ -25,8 +26,10 @@ from hivemind_core.protocol import (
     HiveMindClientConnection,
     HiveMindNodeType
 )
+from hivemind_plugin_manager.protocols import ClientCallbacks
 
 
+@dataclasses.dataclass
 class HiveMindWebsocketProtocol(NetworkProtocol):
     """
     WebSocket handler for managing HiveMind client connections.
@@ -34,10 +37,12 @@ class HiveMindWebsocketProtocol(NetworkProtocol):
     Attributes:
         hm_protocol (Optional[HiveMindListenerProtocol]): The protocol instance for handling HiveMind messages.
     """
+    config: Dict[str, Any] = dataclasses.field(default_factory=dict)
     hm_protocol: Optional[HiveMindListenerProtocol] = None
+    callbacks: ClientCallbacks = dataclasses.field(default_factory=ClientCallbacks)
 
     def run(self):
-
+        LOG.debug(f"websocket server config: {self.config}")
         asyncio.set_event_loop_policy(AnyThreadEventLoopPolicy())
         HiveMindTornadoWebSocket.loop = ioloop.IOLoop.current()
         HiveMindTornadoWebSocket.hm_protocol = self.hm_protocol
@@ -84,13 +89,13 @@ class HiveMindWebsocketProtocol(NetworkProtocol):
         Returns:
             Tuple[str, str]: The paths to the created certificate and key files.
         """
-        CERT_FILE = name + ".crt"
-        KEY_FILE = name + ".key"
-        cert_path = join(cert_dir, CERT_FILE)
-        key_path = join(cert_dir, KEY_FILE)
+        cert_file = name + ".crt"
+        key_file = name + ".key"
+        cert_path = join(cert_dir, cert_file)
+        key_path = join(cert_dir, key_file)
         makedirs(cert_dir, exist_ok=True)
 
-        if not exists(join(cert_dir, CERT_FILE)) or not exists(join(cert_dir, KEY_FILE)):
+        if not exists(join(cert_dir, cert_file)) or not exists(join(cert_dir, key_file)):
             # create a key pair
             k = crypto.PKey()
             k.generate_key(crypto.TYPE_RSA, 2048)
