@@ -12,7 +12,7 @@ jobs:
     secrets: inherit
     with:
       branch: 'dev'
-      version_file: 'hivemind_websocket_protocol/version.py'
+      version_file: 'hivemind_http_protocol/version.py'
       setup_py: 'setup.py'
       update_changelog: true
       publish_prerelease: true
@@ -30,7 +30,7 @@ jobs:
         with:
           homeserver: 'matrix.org'
           token: ${{ secrets.MATRIX_TOKEN }}
-          channel: '!WjxEKjjINpyBRPFgxl:krbel.duckdns.org'
+          channel: '!jImYhOcJWVpvCRsDjc:matrix.org'
           message: |
             new ${{ github.event.repository.name }} PR merged! https://github.com/${{ github.repository }}/pull/${{ github.event.number }}
 
@@ -46,7 +46,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v1
         with:
-          python-version: 3.8
+          python-version: "3.11"
       - name: Install Build Tools
         run: |
           python -m pip install build wheel
