@@ -27,6 +27,7 @@ from hivemind_core.protocol import (
     HiveMindNodeType
 )
 from hivemind_plugin_manager.protocols import ClientCallbacks
+from hivemind_plugin_manager.database import Client
 
 
 @dataclasses.dataclass
@@ -189,7 +190,7 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
             hm_protocol=self.hm_protocol
         )
         self.hm_protocol.db.sync()
-        user = self.hm_protocol.db.get_client_by_api_key(key)
+        user: Client = self.hm_protocol.db.get_client_by_api_key(key)
 
         if not user:
             LOG.error("Client provided an invalid api key")
@@ -206,6 +207,7 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
         self.client.can_broadcast = user.can_broadcast
         self.client.can_propagate = user.can_propagate
         self.client.can_escalate = user.can_escalate
+        self.client.is_admin = user.is_admin
         if user.password:
             # pre-shared password to derive aes_key
             self.client.pswd_handshake = PasswordHandShake(user.password)
