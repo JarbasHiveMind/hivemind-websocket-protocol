@@ -1,12 +1,12 @@
 # Changelog
 
-## [0.0.3a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.0.3a1) (2025-04-26)
+## [0.0.4a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.0.4a1) (2025-12-18)
 
-[Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.0.2...0.0.3a1)
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.0.3...0.0.4a1)
 
 **Merged pull requests:**
 
-- fix: read is\_admin from db [\#3](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/3) ([JarbasAl](https://github.com/JarbasAl))
+- chore: Configure Renovate [\#5](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/5) ([renovate[bot]](https://github.com/apps/renovate))
 
 
 
