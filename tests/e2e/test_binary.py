@@ -12,8 +12,8 @@ FAKE_FILE = b"hello binary world"
 
 def test_raw_audio_round_trip():
     b = single_satellite()
-    b.start_all()
     try:
+        b.start_all()
         m0 = b.get_master("M0")
         s0 = b.get_satellite("S0")
 
@@ -34,8 +34,8 @@ def test_raw_audio_round_trip():
 
 def test_file_payload_round_trip():
     b = single_satellite()
-    b.start_all()
     try:
+        b.start_all()
         m0 = b.get_master("M0")
         s0 = b.get_satellite("S0")
 
