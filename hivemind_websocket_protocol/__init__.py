@@ -148,7 +148,7 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
             raise ValueError("missing authorization")
         try:
             userpass_encoded = bytes(auth.strip(), encoding="utf-8")
-            userpass_decoded = pybase64.b64decode(userpass_encoded).decode("utf-8")
+            userpass_decoded = pybase64.b64decode(userpass_encoded, validate=True).decode("utf-8")
         except (binascii.Error, UnicodeDecodeError) as e:
             raise ValueError("invalid authorization encoding") from e
         if ":" not in userpass_decoded:
@@ -186,7 +186,7 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
             LOG.warning(f"Rejecting websocket connection: {e}")
             self.close(code=1008, reason=str(e))
             return
-        LOG.info(f"Authorizing client - {useragent}:{key}")
+        LOG.info(f"Authorizing client - {useragent}")
 
         def do_send(payload: str, is_bin: bool):
             self.loop.install()  # TODO is this needed?
