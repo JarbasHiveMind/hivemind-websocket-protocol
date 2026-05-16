@@ -1,4 +1,5 @@
 import asyncio
+import binascii
 import dataclasses
 import os
 import os.path
@@ -143,9 +144,18 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
         Returns:
             Tuple[str, str]: The decoded username and key.
         """
-        userpass_encoded = bytes(auth, encoding="utf-8")
-        userpass_decoded = pybase64.b64decode(userpass_encoded).decode("utf-8")
-        name, key = userpass_decoded.split(":")
+        if not auth:
+            raise ValueError("missing authorization")
+        try:
+            userpass_encoded = bytes(auth.strip(), encoding="utf-8")
+            userpass_decoded = pybase64.b64decode(userpass_encoded, validate=True).decode("utf-8")
+        except (binascii.Error, UnicodeDecodeError) as e:
+            raise ValueError("invalid authorization encoding") from e
+        if ":" not in userpass_decoded:
+            raise ValueError("invalid authorization payload")
+        name, key = userpass_decoded.split(":", 1)
+        if not name or not key:
+            raise ValueError("invalid authorization payload")
         return name, key
 
     def on_message(self, message: str) -> None:
@@ -169,9 +179,14 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
         """
         Handle a new client connection and perform authorization.
         """
-        auth = self.request.uri.split("/?authorization=")[-1]
-        useragent, key = self.decode_auth(auth)
-        LOG.info(f"Authorizing client - {useragent}:{key}")
+        auth = self.get_query_argument("authorization", None)
+        try:
+            useragent, key = self.decode_auth(auth)
+        except ValueError as e:
+            LOG.warning(f"Rejecting websocket connection: {e}")
+            self.close(code=1008, reason=str(e))
+            return
+        LOG.info(f"Authorizing client - {useragent}")
 
         def do_send(payload: str, is_bin: bool):
             self.loop.install()  # TODO is this needed?
@@ -232,8 +247,12 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
         # self.write_message(Message("connected").serialize())
 
     def on_close(self):
-        LOG.info(f"disconnecting client: {self.client.peer}")
-        self.hm_protocol.handle_client_disconnected(self.client)
+        client = getattr(self, "client", None)
+        if client is None:
+            LOG.debug("disconnecting unauthenticated websocket client")
+            return
+        LOG.info(f"disconnecting client: {client.peer}")
+        self.hm_protocol.handle_client_disconnected(client)
 
     def check_origin(self, origin) -> bool:
         return True
