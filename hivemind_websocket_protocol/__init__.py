@@ -1,6 +1,7 @@
 import asyncio
 import binascii
 import dataclasses
+import hashlib
 import os
 import os.path
 import random
@@ -186,7 +187,8 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
             LOG.warning(f"Rejecting websocket connection: {e}")
             self.close(code=1008, reason=str(e))
             return
-        LOG.info(f"Authorizing client - {useragent}")
+        key_id = hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
+        LOG.info(f"Authorizing client - {useragent}:key:{key_id}")
 
         def do_send(payload: str, is_bin: bool):
             self.loop.install()  # TODO is this needed?
