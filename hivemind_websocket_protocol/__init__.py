@@ -1,6 +1,7 @@
 import asyncio
 import binascii
 import dataclasses
+import ipaddress
 import os
 import os.path
 import random
@@ -134,6 +135,70 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
     hm_protocol = None
 
     @staticmethod
+    def _normalize_ip(value: str | None) -> Optional[str]:
+        if not isinstance(value, str):
+            return None
+        candidate = value.strip().strip('"')
+        if not candidate:
+            return None
+        if candidate.startswith("[") and "]" in candidate:
+            candidate = candidate[1:candidate.index("]")]
+        elif candidate.count(":") == 1 and "." in candidate:
+            candidate = candidate.rsplit(":", 1)[0]
+        candidate = candidate.split("%", 1)[0]
+        try:
+            return str(ipaddress.ip_address(candidate))
+        except ValueError:
+            return None
+
+    def _header_ip_candidates(self) -> list[str]:
+        candidates: list[str] = []
+        for header in ("cf-connecting-ip", "x-real-ip", "x-client-ip"):
+            ip_value = self._normalize_ip(self.request.headers.get(header))
+            if ip_value:
+                candidates.append(ip_value)
+
+        forwarded_for = self.request.headers.get("x-forwarded-for")
+        if isinstance(forwarded_for, str):
+            for value in forwarded_for.split(","):
+                ip_value = self._normalize_ip(value)
+                if ip_value:
+                    candidates.append(ip_value)
+
+        forwarded = self.request.headers.get("forwarded")
+        if isinstance(forwarded, str):
+            for entry in forwarded.split(","):
+                for token in entry.split(";"):
+                    key, separator, value = token.strip().partition("=")
+                    if separator and key.lower() == "for":
+                        ip_value = self._normalize_ip(value)
+                        if ip_value:
+                            candidates.append(ip_value)
+
+        return list(dict.fromkeys(candidates))
+
+    @staticmethod
+    def _is_global_ip(value: str | None) -> bool:
+        if not value:
+            return False
+        try:
+            return ipaddress.ip_address(value).is_global
+        except ValueError:
+            return False
+
+    def _connection_ip(self) -> Optional[str]:
+        remote_ip = self._normalize_ip(getattr(self.request, "remote_ip", None))
+        if self._is_global_ip(remote_ip):
+            return remote_ip
+
+        candidates = self._header_ip_candidates()
+        for candidate in candidates:
+            if self._is_global_ip(candidate):
+                return candidate
+        return remote_ip or (candidates[0] if candidates else None)
+
+
+    @staticmethod
     def decode_auth(auth: str) -> Tuple[str, str]:
         """
         Decode the base64 encoded authorization string.
@@ -166,27 +231,30 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
             message (str): The incoming message.
         """
         message = self.client.decode(message)
+        source_ip = getattr(self.client, "source_ip", None)
+        source_label = f" from {source_ip}" if source_ip else ""
         if (
                 message.msg_type == HiveMessageType.BUS
                 and message.payload.msg_type == "recognizer_loop:b64_audio"
         ):
-            LOG.info(f"Received {self.client.peer} sent base64 audio for STT")
+            LOG.info(f"Received {self.client.peer}{source_label} sent base64 audio for STT")
         else:
-            LOG.info(f"Received {self.client.peer} message: {message}")
+            LOG.info(f"Received {self.client.peer}{source_label} message: {message}")
         self.hm_protocol.handle_message(message, self.client)
 
     def open(self) -> None:
         """
         Handle a new client connection and perform authorization.
         """
+        source_ip = self._connection_ip()
         auth = self.get_query_argument("authorization", None)
         try:
             useragent, key = self.decode_auth(auth)
         except ValueError as e:
-            LOG.warning(f"Rejecting websocket connection: {e}")
+            LOG.warning(f"Rejecting websocket connection from {source_ip or 'unknown'}: {e}")
             self.close(code=1008, reason=str(e))
             return
-        LOG.info(f"Authorizing client - {useragent}:{key}")
+        LOG.info(f"Authorizing client from {source_ip or 'unknown'} - {useragent}")
 
         def do_send(payload: str, is_bin: bool):
             self.loop.install()  # TODO is this needed?
@@ -204,6 +272,7 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
             name=useragent,
             hm_protocol=self.hm_protocol
         )
+        self.client.source_ip = source_ip
         self.hm_protocol.db.sync()
         user: Client = self.hm_protocol.db.get_client_by_api_key(key)
 
@@ -251,7 +320,9 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
         if client is None:
             LOG.debug("disconnecting unauthenticated websocket client")
             return
-        LOG.info(f"disconnecting client: {client.peer}")
+        source_ip = getattr(client, "source_ip", None)
+        source_label = f" from {source_ip}" if source_ip else ""
+        LOG.info(f"disconnecting client: {client.peer}{source_label}")
         self.hm_protocol.handle_client_disconnected(client)
 
     def check_origin(self, origin) -> bool:
