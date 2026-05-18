@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.4a3](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.0.4a3) (2026-05-18)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.0.4a2...0.0.4a3)
+
+**Merged pull requests:**
+
+- ci: add standard OpenVoiceOS GitHub Actions workflows [\#19](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/19) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.0.4a2](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.0.4a2) (2026-05-18)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.0.4a1...0.0.4a2)
