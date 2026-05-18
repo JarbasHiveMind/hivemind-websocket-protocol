@@ -195,6 +195,30 @@ def test_blocked_message_type_does_not_crash_connection(tornado_server):
         c.close()
 
 
+def test_recognizer_loop_b64_audio_branch(tornado_server):
+    """on_message has a dedicated branch for recognizer_loop:b64_audio.
+
+    Exercising it via the real transport so the branch is covered.
+    """
+    c = _client(tornado_server)
+    seen = []
+    original = tornado_server.listener.handle_bus_message
+
+    def _capture(message, client_conn):
+        seen.append(message)
+        return original(message, client_conn)
+
+    tornado_server.listener.handle_bus_message = _capture
+    try:
+        _wait_clients(tornado_server, 1)
+        c.emit(Message("recognizer_loop:b64_audio", {"audio": "AAAA"}))
+        _wait(lambda: bool(seen), timeout=3)
+        assert seen and seen[0].payload.msg_type == "recognizer_loop:b64_audio"
+    finally:
+        tornado_server.listener.handle_bus_message = original
+        c.close()
+
+
 def test_multiple_sequential_messages(tornado_server):
     """Five BUS messages in a row all reach the listener."""
     c = _client(tornado_server)

@@ -92,7 +92,11 @@ def tornado_server():
     master.register_satellite(
         api_key,
         password=password,
-        allowed_types=["recognizer_loop:utterance", "speak"],
+        allowed_types=[
+            "recognizer_loop:utterance",
+            "recognizer_loop:b64_audio",
+            "speak",
+        ],
     )
 
     port = _free_port()
