@@ -1,5 +1,4 @@
 import asyncio
-import binascii
 import dataclasses
 import os
 import os.path
@@ -144,18 +143,10 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
         Returns:
             Tuple[str, str]: The decoded username and key.
         """
-        if not auth:
-            raise ValueError("missing authorization")
-        try:
-            userpass_encoded = bytes(auth.strip(), encoding="utf-8")
-            userpass_decoded = pybase64.b64decode(userpass_encoded, validate=True).decode("utf-8")
-        except (binascii.Error, UnicodeDecodeError) as e:
-            raise ValueError("invalid authorization encoding") from e
-        if ":" not in userpass_decoded:
-            raise ValueError("invalid authorization payload")
-        name, key = userpass_decoded.split(":", 1)
+        decoded = pybase64.b64decode(auth or "", validate=True).decode("utf-8")
+        name, key = decoded.split(":", 1)
         if not name or not key:
-            raise ValueError("invalid authorization payload")
+            raise ValueError("empty credentials")
         return name, key
 
     def on_message(self, message: str) -> None:
@@ -182,9 +173,13 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
         auth = self.get_query_argument("authorization", None)
         try:
             useragent, key = self.decode_auth(auth)
-        except ValueError as e:
-            LOG.warning(f"Rejecting websocket connection: {e}")
-            self.close(code=1008, reason=str(e))
+        except (ValueError, UnicodeDecodeError) as e:
+            LOG.warning(
+                f"rejecting websocket from {self.request.remote_ip}: "
+                f"bad authorization ({e.__class__.__name__}: {e}) "
+                f"raw={auth!r}"
+            )
+            self.close(code=1008, reason="invalid authorization")
             return
         LOG.info(f"Authorizing client - {useragent}:{key}")
 
@@ -249,7 +244,10 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
     def on_close(self):
         client = getattr(self, "client", None)
         if client is None:
-            LOG.debug("disconnecting unauthenticated websocket client")
+            LOG.debug(
+                f"closing unauthenticated websocket from {self.request.remote_ip} "
+                f"(no client was ever attached)"
+            )
             return
         LOG.info(f"disconnecting client: {client.peer}")
         self.hm_protocol.handle_client_disconnected(client)
