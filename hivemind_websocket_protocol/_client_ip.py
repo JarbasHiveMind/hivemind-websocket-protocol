@@ -44,7 +44,16 @@ def resolve_client_ip(
         raw = headers.get(header)
         if not raw:
             continue
-        candidates = [v.strip() for v in raw.split(",") if v.strip()]
+        candidates = []
+        for value in raw.split(","):
+            value = value.strip()
+            if not value:
+                continue
+            try:
+                ipaddress.ip_address(value)
+            except ValueError:
+                continue  # skip "unknown", port-suffixed, garbage
+            candidates.append(value)
         for candidate in reversed(candidates):
             if not _in_networks(candidate, trusted_networks):
                 return candidate

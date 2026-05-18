@@ -64,14 +64,18 @@ class HiveMindWebsocketProtocol(NetworkProtocol):
         HiveMindTornadoWebSocket.loop = ioloop.IOLoop.current()
         HiveMindTornadoWebSocket.hm_protocol = self.hm_protocol
 
-        proxy_cidrs = self.config.get("trusted_proxy_cidrs") or os.getenv(
-            "HIVEMIND_TRUSTED_PROXY_CIDRS"
-        )
-        client_ip_headers = (
-            self.config.get("trusted_client_ip_headers")
-            or os.getenv("HIVEMIND_TRUSTED_CLIENT_IP_HEADERS")
-            or DEFAULT_TRUSTED_HEADERS
-        )
+        if "trusted_proxy_cidrs" in self.config:
+            proxy_cidrs = self.config["trusted_proxy_cidrs"]
+        else:
+            proxy_cidrs = os.getenv("HIVEMIND_TRUSTED_PROXY_CIDRS")
+
+        if "trusted_client_ip_headers" in self.config:
+            client_ip_headers = self.config["trusted_client_ip_headers"]
+        else:
+            client_ip_headers = (
+                os.getenv("HIVEMIND_TRUSTED_CLIENT_IP_HEADERS")
+                or DEFAULT_TRUSTED_HEADERS
+            )
         trusted_networks = parse_networks(_split_csv(proxy_cidrs))
         trusted_headers = tuple(h.lower() for h in _split_csv(client_ip_headers))
 

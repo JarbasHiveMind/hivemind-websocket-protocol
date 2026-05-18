@@ -43,10 +43,25 @@ def test_falls_back_to_next_header_when_first_missing():
 
 
 def test_bad_ip_in_header_is_skipped():
-    # bad value is not in any network, so it's returned as-is
-    # (we trust upstream proxies; validation is their job)
+    # malformed tokens are filtered; fall back to remote_ip
     headers = {"x-forwarded-for": "not-an-ip"}
-    assert resolve_client_ip("10.0.0.5", headers, TRUSTED, HEADERS) == "not-an-ip"
+    assert resolve_client_ip("10.0.0.5", headers, TRUSTED, HEADERS) == "10.0.0.5"
+
+
+def test_unknown_token_skipped_per_rfc7239():
+    headers = {"x-forwarded-for": "unknown"}
+    assert resolve_client_ip("10.0.0.5", headers, TRUSTED, HEADERS) == "10.0.0.5"
+
+
+def test_mixed_valid_and_invalid_tokens():
+    headers = {"x-forwarded-for": "unknown, 8.8.8.8, garbage"}
+    assert resolve_client_ip("10.0.0.5", headers, TRUSTED, HEADERS) == "8.8.8.8"
+
+
+def test_invalid_token_between_trusted_and_client():
+    # garbage in the middle should not derail the right-to-left walk
+    headers = {"x-forwarded-for": "8.8.8.8, garbage, 10.0.0.5"}
+    assert resolve_client_ip("10.0.0.5", headers, TRUSTED, HEADERS) == "8.8.8.8"
 
 
 def test_empty_header_falls_back():
@@ -177,11 +192,11 @@ def test_malformed_remote_ip():
     assert resolve_client_ip("not-an-ip", headers, TRUSTED, HEADERS) == "not-an-ip"
 
 
-def test_port_suffixed_xff_returned_verbatim():
-    # We don't normalize header values; if a proxy appends a port, it's on them.
-    # Documenting actual behaviour so a future change is intentional.
+def test_port_suffixed_xff_is_skipped():
+    # ip_address() rejects "1.2.3.4:port"; we don't try to strip ports.
+    # A misconfigured proxy that appends ports falls through to remote_ip.
     headers = {"x-forwarded-for": "8.8.8.8:443"}
-    assert resolve_client_ip("10.0.0.5", headers, TRUSTED, HEADERS) == "8.8.8.8:443"
+    assert resolve_client_ip("10.0.0.5", headers, TRUSTED, HEADERS) == "10.0.0.5"
 
 
 def test_overlapping_cidrs():
@@ -215,3 +230,33 @@ def test_parse_networks_skips_blank_strings():
     nets = parse_networks(["10.0.0.0/8", "", "  "])
     # ip_network rejects "" and "  " -> warnings, but we get the valid one
     assert len(nets) == 1
+
+
+# --- _split_csv (config / env parsing) -----------------------------------
+
+def test_split_csv_handles_string_list_none():
+    from hivemind_websocket_protocol import _split_csv
+
+    assert _split_csv(None) == ()
+    assert _split_csv("") == ()
+    assert _split_csv("a,b,c") == ("a", "b", "c")
+    assert _split_csv("  a , , b  ") == ("a", "b")
+    assert _split_csv(["a", "b"]) == ("a", "b")
+    assert _split_csv(("a", "", " b ")) == ("a", "b")
+    assert _split_csv([]) == ()
+
+
+def test_explicit_empty_config_overrides_env(monkeypatch):
+    # Regression: 'or' would treat an explicit [] as falsy and fall through to env.
+    # The 'in self.config' branch must let an explicit empty list disable the feature.
+    from hivemind_websocket_protocol import _split_csv
+
+    config = {"trusted_proxy_cidrs": []}
+    monkeypatch.setenv("HIVEMIND_TRUSTED_PROXY_CIDRS", "10.0.0.0/8")
+
+    import os
+    if "trusted_proxy_cidrs" in config:
+        value = config["trusted_proxy_cidrs"]
+    else:
+        value = os.getenv("HIVEMIND_TRUSTED_PROXY_CIDRS")
+    assert _split_csv(value) == ()  # explicit empty list wins over env
