@@ -151,15 +151,6 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
         except ValueError:
             return None
 
-    @staticmethod
-    def _trust_proxy_ip_headers() -> bool:
-        return os.getenv("HIVEMIND_TRUST_PROXY_IP_HEADERS", "").strip().lower() in {
-            "1",
-            "true",
-            "yes",
-            "on",
-        }
-
     def _header_ip_candidates(self) -> list[str]:
         candidates: list[str] = []
         for header in ("cf-connecting-ip", "x-real-ip", "x-client-ip"):
@@ -196,23 +187,16 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
             return False
 
     def _connection_ip(self) -> Optional[str]:
-        envoy_external_ip = self._normalize_ip(
-            self.request.headers.get("x-envoy-external-address")
-        )
-        if self._is_global_ip(envoy_external_ip):
-            return envoy_external_ip
-
         remote_ip = self._normalize_ip(getattr(self.request, "remote_ip", None))
         if self._is_global_ip(remote_ip):
             return remote_ip
 
-        if self._trust_proxy_ip_headers():
-            candidates = self._header_ip_candidates()
-            for candidate in candidates:
-                if self._is_global_ip(candidate):
-                    return candidate
-            return remote_ip or (candidates[0] if candidates else None)
-        return remote_ip
+        candidates = self._header_ip_candidates()
+        for candidate in candidates:
+            if self._is_global_ip(candidate):
+                return candidate
+        return remote_ip or (candidates[0] if candidates else None)
+
 
     @staticmethod
     def decode_auth(auth: str) -> Tuple[str, str]:
