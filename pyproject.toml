@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hivemind-websocket-protocol"
+dynamic = ["version"]
+description = "websocket network protocol for hivemind-core"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "jarbasAi", email = "jarbasai@mailfence.com" }
+]
+requires-python = ">=3.8"
+dependencies = [
+    "tornado",
+    "hivemind-plugin-manager",
+    "poorman_handshake>=0.1.0",
+    "pyOpenSSL"
+]
+
+[project.urls]
+Homepage = "https://github.com/JarbasHiveMind/hivemind-websocket-protocol"
+
+[project.entry-points."hivemind.network.protocol"]
+"hivemind-websocket-plugin" = "hivemind_websocket_protocol:HiveMindWebsocketProtocol"
+
+[tool.setuptools.dynamic]
+version = { attr = "hivemind_websocket_protocol.version.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["hivemind_websocket_protocol*"]
