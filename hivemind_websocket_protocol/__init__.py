@@ -145,6 +145,8 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
         """
         decoded = pybase64.b64decode(auth or "", validate=True).decode("utf-8")
         name, key = decoded.split(":", 1)
+        if not name or not key:
+            raise ValueError("empty credentials")
         return name, key
 
     def on_message(self, message: str) -> None:
@@ -172,7 +174,11 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
         try:
             useragent, key = self.decode_auth(auth)
         except (ValueError, UnicodeDecodeError) as e:
-            LOG.warning(f"rejecting websocket: bad authorization ({e.__class__.__name__})")
+            LOG.warning(
+                f"rejecting websocket from {self.request.remote_ip}: "
+                f"bad authorization ({e.__class__.__name__}: {e}) "
+                f"raw={auth!r}"
+            )
             self.close(code=1008, reason="invalid authorization")
             return
         LOG.info(f"Authorizing client - {useragent}:{key}")
@@ -238,6 +244,10 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
     def on_close(self):
         client = getattr(self, "client", None)
         if client is None:
+            LOG.debug(
+                f"closing unauthenticated websocket from {self.request.remote_ip} "
+                f"(no client was ever attached)"
+            )
             return
         LOG.info(f"disconnecting client: {client.peer}")
         self.hm_protocol.handle_client_disconnected(client)
