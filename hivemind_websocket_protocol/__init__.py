@@ -166,6 +166,7 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
         hm_protocol (Optional[HiveMindListenerProtocol]): The protocol instance for handling HiveMind messages.
     """
     hm_protocol = None
+    source_ip: Optional[str] = None
 
     def _client_ip(self) -> Optional[str]:
         return resolve_client_ip(
@@ -194,7 +195,7 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
 
     def on_message(self, message: str) -> None:
         message = self.client.decode(message)
-        peer = self._peer_label(self.client)
+        peer = self._peer_label(self.client.peer)
         if (
                 message.msg_type == HiveMessageType.BUS
                 and message.payload.msg_type == "recognizer_loop:b64_audio"
@@ -204,28 +205,26 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
             LOG.info(f"Received {peer} message: {message}")
         self.hm_protocol.handle_message(message, self.client)
 
-    @staticmethod
-    def _peer_label(client: HiveMindClientConnection) -> str:
-        ip = getattr(client, "source_ip", None)
-        return f"{client.peer} ({ip})" if ip else client.peer
+    def _peer_label(self, peer: str) -> str:
+        return f"{peer} ({self.source_ip})" if self.source_ip else peer
 
     def open(self) -> None:
         """
         Handle a new client connection and perform authorization.
         """
-        source_ip = self._client_ip()
+        self.source_ip = self._client_ip()
         auth = self.get_query_argument("authorization", None)
         try:
             useragent, key = self.decode_auth(auth)
         except (ValueError, UnicodeDecodeError) as e:
             LOG.warning(
-                f"rejecting websocket from {source_ip or self.request.remote_ip}: "
+                f"rejecting websocket from {self.source_ip or self.request.remote_ip}: "
                 f"bad authorization ({e.__class__.__name__}: {e}) "
                 f"raw={auth!r}"
             )
             self.close(code=1008, reason="invalid authorization")
             return
-        LOG.info(f"Authorizing client from {source_ip or 'unknown'} - {useragent}:{key}")
+        LOG.info(f"Authorizing client from {self.source_ip or 'unknown'} - {useragent}:{key}")
 
         def do_send(payload: str, is_bin: bool):
             self.loop.install()  # TODO is this needed?
@@ -243,7 +242,6 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
             name=useragent,
             hm_protocol=self.hm_protocol
         )
-        self.client.source_ip = source_ip
         self.hm_protocol.db.sync()
         user: Client = self.hm_protocol.db.get_client_by_api_key(key)
 
@@ -294,7 +292,7 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
                 f"(no client was ever attached)"
             )
             return
-        LOG.info(f"disconnecting client: {self._peer_label(client)}")
+        LOG.info(f"disconnecting client: {self._peer_label(client.peer)}")
         self.hm_protocol.handle_client_disconnected(client)
 
     def check_origin(self, origin) -> bool:
