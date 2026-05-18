@@ -68,27 +68,17 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
-@pytest.fixture
-def tornado_server():
-    """Run HiveMindWebsocketProtocol on a real Tornado server in a thread.
+def _spawn_tornado(trusted_networks=(), trusted_headers=()):
+    """Helper: spin up HiveMindWebsocketProtocol on a real Tornado server.
 
-    Yields a `TornadoServer` carrying host/port/api_key/password/master. The
-    server is torn down after the test by stopping the ioloop.
-
-    Only one Tornado server can run per process at a time because the handler
-    keeps `loop`/`hm_protocol` as class attributes — pytest's default
-    function-scope serialises that for us.
+    Returns `(TornadoServer, thread)`. Caller is responsible for teardown:
+    schedule `HiveMindTornadoWebSocket.loop.add_callback(loop.stop)` and
+    join the thread.
     """
     api_key = "test-api-key"
     password = "test-password"
 
-    # Borrow hivescope's wiring for db / agent / binary protocols, then
-    # point our Tornado server at its hm_protocol.
-    master = MasterNode.create(
-        "M0",
-        require_crypto=False,
-        handshake_enabled=True,
-    )
+    master = MasterNode.create("M0", require_crypto=False, handshake_enabled=True)
     master.register_satellite(
         api_key,
         password=password,
@@ -113,7 +103,11 @@ def tornado_server():
             loop.make_current()
             HiveMindTornadoWebSocket.loop = loop
             HiveMindTornadoWebSocket.hm_protocol = master.hm_protocol
-            app = web.Application([("/", HiveMindTornadoWebSocket)])
+            app = web.Application(
+                [("/", HiveMindTornadoWebSocket)],
+                trusted_networks=trusted_networks,
+                trusted_headers=trusted_headers,
+            )
             app.listen(port, "127.0.0.1")
             loop.add_callback(server_ready.set)
             loop.start()
@@ -127,13 +121,44 @@ def tornado_server():
         raise RuntimeError("Tornado server failed to start within 5s")
     if server_error:
         raise server_error[0]
-    time.sleep(0.05)  # let listen() finish binding before first client
+    time.sleep(0.05)
+    server = TornadoServer(host="127.0.0.1", port=port,
+                           api_key=api_key, password=password, master=master)
+    return server, thread
 
+
+def _teardown_tornado(thread):
+    loop = HiveMindTornadoWebSocket.loop
+    if loop is not None:
+        loop.add_callback(loop.stop)
+    thread.join(timeout=5.0)
+
+
+@pytest.fixture
+def tornado_server():
+    """Plain Tornado server, no trusted-proxy config."""
+    server, thread = _spawn_tornado()
     try:
-        yield TornadoServer(host="127.0.0.1", port=port,
-                            api_key=api_key, password=password, master=master)
+        yield server
     finally:
-        loop = HiveMindTornadoWebSocket.loop
-        if loop is not None:
-            loop.add_callback(loop.stop)
-        thread.join(timeout=5.0)
+        _teardown_tornado(thread)
+
+
+@pytest.fixture
+def tornado_server_with_proxy():
+    """Tornado server with 127.0.0.0/8 as a trusted proxy CIDR.
+
+    Tests use this to send X-Forwarded-For / X-Real-IP from the local
+    client (which IS in 127.0.0.0/8) and assert the listener resolves
+    the forwarded address.
+    """
+    from hivemind_websocket_protocol._client_ip import parse_networks
+    networks = parse_networks(["127.0.0.0/8"])
+    headers = ("x-forwarded-for", "x-real-ip")
+    server, thread = _spawn_tornado(
+        trusted_networks=networks, trusted_headers=headers,
+    )
+    try:
+        yield server
+    finally:
+        _teardown_tornado(thread)
