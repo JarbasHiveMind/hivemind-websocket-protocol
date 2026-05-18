@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.0a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.2.0a1) (2026-05-18)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.1.0a1...0.2.0a1)
+
+**Merged pull requests:**
+
+- feat: trusted client IP from known proxies \(supersedes \#14\) [\#15](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/15) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.1.0a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.1.0a1) (2026-05-18)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.0.4a3...0.1.0a1)
