@@ -71,15 +71,18 @@ class HiveMindWebsocketProtocol(NetworkProtocol):
         asyncio.set_event_loop_policy(AnyThreadEventLoopPolicy())
         HiveMindTornadoWebSocket.loop = ioloop.IOLoop.current()
         HiveMindTornadoWebSocket.hm_protocol = self.hm_protocol
-        proxy_cidrs = (
-            self.config.get("trusted_proxy_cidrs")
-            or os.getenv("HIVEMIND_TRUSTED_PROXY_CIDRS")
-        )
-        client_ip_headers = (
-            self.config.get("trusted_client_ip_headers")
-            or os.getenv("HIVEMIND_TRUSTED_CLIENT_IP_HEADERS")
-            or "x-hivemind-client-ip"
-        )
+        if "trusted_proxy_cidrs" in self.config:
+            proxy_cidrs = self.config["trusted_proxy_cidrs"]
+        else:
+            proxy_cidrs = os.getenv("HIVEMIND_TRUSTED_PROXY_CIDRS")
+
+        if "trusted_client_ip_headers" in self.config:
+            client_ip_headers = self.config["trusted_client_ip_headers"]
+        else:
+            client_ip_headers = (
+                os.getenv("HIVEMIND_TRUSTED_CLIENT_IP_HEADERS")
+                or "x-hivemind-client-ip"
+            )
         HiveMindTornadoWebSocket.trusted_proxy_networks = self._trusted_proxy_networks(
             proxy_cidrs
         )
@@ -226,13 +229,12 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
 
     def _connection_ip(self) -> Optional[str]:
         remote_ip = self._normalize_ip(getattr(self.request, "remote_ip", None))
-        if self._is_global_ip(remote_ip):
-            return remote_ip
-
         if self._is_trusted_proxy(remote_ip):
             candidates = self._header_ip_candidates()
             if candidates:
                 return candidates[0]
+        if self._is_global_ip(remote_ip):
+            return remote_ip
         return remote_ip
 
     @classmethod
