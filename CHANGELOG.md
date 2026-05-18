@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.4a2](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.0.4a2) (2026-05-18)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.0.4a1...0.0.4a2)
+
+**Merged pull requests:**
+
+- Handle bad websocket auth [\#12](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/12) ([goldyfruit](https://github.com/goldyfruit))
+
 ## [0.0.4a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.0.4a1) (2025-12-18)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.0.3...0.0.4a1)
