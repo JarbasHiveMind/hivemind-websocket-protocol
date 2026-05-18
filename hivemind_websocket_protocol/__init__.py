@@ -29,6 +29,22 @@ from hivemind_core.protocol import (
 from hivemind_plugin_manager.protocols import ClientCallbacks
 from hivemind_plugin_manager.database import Client
 
+from hivemind_websocket_protocol._client_ip import (
+    parse_networks,
+    resolve_client_ip,
+)
+
+
+DEFAULT_TRUSTED_HEADERS = "x-forwarded-for,x-real-ip"
+
+
+def _split_csv(value: Any) -> Tuple[str, ...]:
+    if not value:
+        return ()
+    if isinstance(value, str):
+        return tuple(v.strip() for v in value.split(",") if v.strip())
+    return tuple(str(v).strip() for v in value if str(v).strip())
+
 
 @dataclasses.dataclass
 class HiveMindWebsocketProtocol(NetworkProtocol):
@@ -48,6 +64,21 @@ class HiveMindWebsocketProtocol(NetworkProtocol):
         HiveMindTornadoWebSocket.loop = ioloop.IOLoop.current()
         HiveMindTornadoWebSocket.hm_protocol = self.hm_protocol
 
+        if "trusted_proxy_cidrs" in self.config:
+            proxy_cidrs = self.config["trusted_proxy_cidrs"]
+        else:
+            proxy_cidrs = os.getenv("HIVEMIND_TRUSTED_PROXY_CIDRS")
+
+        if "trusted_client_ip_headers" in self.config:
+            client_ip_headers = self.config["trusted_client_ip_headers"]
+        else:
+            client_ip_headers = (
+                os.getenv("HIVEMIND_TRUSTED_CLIENT_IP_HEADERS")
+                or DEFAULT_TRUSTED_HEADERS
+            )
+        trusted_networks = parse_networks(_split_csv(proxy_cidrs))
+        trusted_headers = tuple(h.lower() for h in _split_csv(client_ip_headers))
+
         ssl = self.config.get("ssl", False)
         cert_dir: str = self.config.get("cert_dir") or f"{xdg_data_home()}/hivemind"
         cert_name: str = self.config.get("cert_name") or "hivemind"
@@ -56,7 +87,11 @@ class HiveMindWebsocketProtocol(NetworkProtocol):
         port = int(self.config.get("port") or self.identity.default_port or 5678)
 
         routes: list = [("/", HiveMindTornadoWebSocket)]
-        application = web.Application(routes)
+        application = web.Application(
+            routes,
+            trusted_networks=trusted_networks,
+            trusted_headers=trusted_headers,
+        )
         if ssl:
             cert_file = f"{cert_dir}/{cert_name}.crt"
             key_file = f"{cert_dir}/{cert_name}.key"
@@ -131,6 +166,15 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
         hm_protocol (Optional[HiveMindListenerProtocol]): The protocol instance for handling HiveMind messages.
     """
     hm_protocol = None
+    source_ip: Optional[str] = None
+
+    def _client_ip(self) -> Optional[str]:
+        return resolve_client_ip(
+            getattr(self.request, "remote_ip", None),
+            self.request.headers,
+            self.settings.get("trusted_networks", ()),
+            self.settings.get("trusted_headers", ()),
+        )
 
     @staticmethod
     def decode_auth(auth: str) -> Tuple[str, str]:
@@ -150,38 +194,37 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
         return name, key
 
     def on_message(self, message: str) -> None:
-        """
-        Handle incoming messages from the WebSocket.
-
-        Args:
-            message (str): The incoming message.
-        """
         message = self.client.decode(message)
+        peer = self._peer_label(self.client.peer)
         if (
                 message.msg_type == HiveMessageType.BUS
                 and message.payload.msg_type == "recognizer_loop:b64_audio"
         ):
-            LOG.info(f"Received {self.client.peer} sent base64 audio for STT")
+            LOG.info(f"Received {peer} sent base64 audio for STT")
         else:
-            LOG.info(f"Received {self.client.peer} message: {message}")
+            LOG.info(f"Received {peer} message: {message}")
         self.hm_protocol.handle_message(message, self.client)
+
+    def _peer_label(self, peer: str) -> str:
+        return f"{peer} ({self.source_ip})" if self.source_ip else peer
 
     def open(self) -> None:
         """
         Handle a new client connection and perform authorization.
         """
+        self.source_ip = self._client_ip()
         auth = self.get_query_argument("authorization", None)
         try:
             useragent, key = self.decode_auth(auth)
         except (ValueError, UnicodeDecodeError) as e:
             LOG.warning(
-                f"rejecting websocket from {self.request.remote_ip}: "
+                f"rejecting websocket from {self.source_ip or self.request.remote_ip}: "
                 f"bad authorization ({e.__class__.__name__}: {e}) "
                 f"raw={auth!r}"
             )
             self.close(code=1008, reason="invalid authorization")
             return
-        LOG.info(f"Authorizing client - {useragent}:{key}")
+        LOG.info(f"Authorizing client from {self.source_ip or 'unknown'} - {useragent}:{key}")
 
         def do_send(payload: str, is_bin: bool):
             self.loop.install()  # TODO is this needed?
@@ -249,7 +292,7 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
                 f"(no client was ever attached)"
             )
             return
-        LOG.info(f"disconnecting client: {client.peer}")
+        LOG.info(f"disconnecting client: {self._peer_label(client.peer)}")
         self.hm_protocol.handle_client_disconnected(client)
 
     def check_origin(self, origin) -> bool:
