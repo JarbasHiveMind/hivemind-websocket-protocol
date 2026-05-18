@@ -1,10 +1,10 @@
 """Client-IP resolution for listeners running behind a trusted proxy."""
 import ipaddress
-from typing import Iterable, Mapping, Optional, Tuple
+from typing import Iterable, Mapping, Optional, Tuple, Union
 
 from ovos_utils.log import LOG
 
-IPNetwork = ipaddress._BaseNetwork
+IPNetwork = Union[ipaddress.IPv4Network, ipaddress.IPv6Network]
 
 
 def parse_networks(cidrs: Iterable[str]) -> Tuple[IPNetwork, ...]:

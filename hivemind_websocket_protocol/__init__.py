@@ -201,7 +201,7 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
         self.hm_protocol.handle_message(message, self.client)
 
     @staticmethod
-    def _peer_label(client) -> str:
+    def _peer_label(client: HiveMindClientConnection) -> str:
         ip = getattr(client, "source_ip", None)
         return f"{client.peer} ({ip})" if ip else client.peer
 
