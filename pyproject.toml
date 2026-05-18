@@ -14,6 +14,10 @@ requires-python = ">=3.10"
 dependencies = [
     "tornado",
     "hivemind-plugin-manager",
+    "hivemind-bus-client",
+    "hivemind-core",
+    "ovos-bus-client",
+    "ovos-utils",
     "poorman_handshake>=0.1.0",
     "pyOpenSSL",
     "pybase64",
