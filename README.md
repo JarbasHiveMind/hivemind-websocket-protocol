@@ -10,9 +10,10 @@ When the listener runs behind a proxy, it can log the real client IP from a
 trusted header:
 
 ```shell
-HIVEMIND_TRUSTED_PROXY_CIDRS=10.42.0.0/16
-HIVEMIND_TRUSTED_CLIENT_IP_HEADERS=x-hivemind-client-ip
+HIVEMIND_TRUSTED_PROXY_CIDRS=10.42.0.0/16,104.16.0.0/13
+HIVEMIND_TRUSTED_CLIENT_IP_HEADERS=x-forwarded-for
 ```
 
 The header is only used when the direct connection comes from a trusted proxy
-CIDR. The proxy should strip any incoming copy of the header and set it itself.
+CIDR. For forwarded chains, the listener walks from right to left and uses the
+first address that is not in the trusted proxy ranges.

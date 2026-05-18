@@ -232,10 +232,16 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
         if self._is_trusted_proxy(remote_ip):
             candidates = self._header_ip_candidates()
             if candidates:
-                return candidates[0]
+                return self._client_ip_from_candidates(candidates)
         if self._is_global_ip(remote_ip):
             return remote_ip
         return remote_ip
+
+    def _client_ip_from_candidates(self, candidates: list[str]) -> str:
+        for candidate in reversed(candidates):
+            if not self._is_trusted_proxy(candidate):
+                return candidate
+        return candidates[0]
 
     @classmethod
     def _is_trusted_proxy(cls, remote_ip: str | None) -> bool:
