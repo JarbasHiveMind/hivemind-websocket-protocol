@@ -9,6 +9,7 @@ from os import makedirs
 from os.path import exists, join
 from socket import gethostname
 from typing import Dict, Any, Optional, Tuple
+from urllib.parse import unquote
 
 import pybase64
 from OpenSSL import crypto
@@ -193,8 +194,9 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
         except ValueError:
             return None
 
-    def _header_ip_candidates(self) -> list[str]:
-        candidates: list[str] = []
+    def _header_ip_candidates(self) -> list[list[str]]:
+        candidate_groups: list[list[str]] = []
+        seen: set[str] = set()
         for header in self.trusted_client_ip_headers:
             header_value = self.request.headers.get(header)
             if not isinstance(header_value, str):
@@ -211,12 +213,17 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
             else:
                 values = [header_value]
 
+            candidates: list[str] = []
             for value in values:
                 ip_value = self._normalize_ip(value)
-                if ip_value:
+                if ip_value and ip_value not in seen:
                     candidates.append(ip_value)
+                    seen.add(ip_value)
 
-        return list(dict.fromkeys(candidates))
+            if candidates:
+                candidate_groups.append(candidates)
+
+        return candidate_groups
 
     @staticmethod
     def _is_global_ip(value: str | None) -> bool:
@@ -230,8 +237,7 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
     def _connection_ip(self) -> Optional[str]:
         remote_ip = self._normalize_ip(getattr(self.request, "remote_ip", None))
         if self._is_trusted_proxy(remote_ip):
-            candidates = self._header_ip_candidates()
-            if candidates:
+            for candidates in self._header_ip_candidates():
                 return self._client_ip_from_candidates(candidates)
         if self._is_global_ip(remote_ip):
             return remote_ip
@@ -279,6 +285,18 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
             raise ValueError("invalid authorization payload")
         return name, key
 
+    @staticmethod
+    def _query_argument(query: str | bytes | None, name: str) -> Optional[str]:
+        if isinstance(query, bytes):
+            query = query.decode("utf-8", errors="ignore")
+        if not isinstance(query, str) or not query:
+            return None
+        for part in query.split("&"):
+            key, separator, value = part.partition("=")
+            if unquote(key) == name:
+                return unquote(value) if separator else ""
+        return None
+
     def on_message(self, message: str) -> None:
         """
         Handle incoming messages from the WebSocket.
@@ -303,7 +321,7 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
         Handle a new client connection and perform authorization.
         """
         source_ip = self._connection_ip()
-        auth = self.get_query_argument("authorization", None)
+        auth = self._query_argument(getattr(self.request, "query", None), "authorization")
         try:
             useragent, key = self.decode_auth(auth)
         except ValueError as e:
