@@ -6,9 +6,9 @@ Uses the `tornado_server_with_proxy` fixture which configures
 honoured. A plain `tornado_server` (no trusted CIDRs) is used as the
 negative control.
 """
+import socket
 import time
 
-import pytest
 import websocket as ws_client
 import pybase64
 
@@ -44,10 +44,12 @@ def _auth_url(server, useragent="e2e"):
 def _connect(url, *, headers=None, timeout=3):
     sock = ws_client.create_connection(url, header=headers or [], timeout=timeout)
     sock.settimeout(1)
-    # Drain HELLO so the server-side handler has fully entered open()
+    # Drain HELLO so the server-side handler has fully entered open().
+    # The recv may legitimately time out if the server hasn't pushed yet;
+    # any other error is a real failure.
     try:
         sock.recv()
-    except Exception:
+    except (ws_client.WebSocketTimeoutException, socket.timeout):
         pass
     return sock
 

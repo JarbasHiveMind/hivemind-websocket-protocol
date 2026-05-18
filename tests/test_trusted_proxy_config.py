@@ -10,7 +10,6 @@ import asyncio
 import threading
 import time
 
-import pytest
 from tornado.platform.asyncio import AnyThreadEventLoopPolicy
 
 from hivemind_websocket_protocol import (
@@ -19,7 +18,7 @@ from hivemind_websocket_protocol import (
 )
 from hivescope.node import MasterNode
 
-from tests.test_protocol_unit import _free_port  # noqa: reuse
+from tests.test_protocol_unit import _free_port
 
 
 def _run_until_settings_loaded(proto):
@@ -102,7 +101,9 @@ def test_explicit_empty_config_disables_feature(monkeypatch):
     assert settings["trusted_networks"] == ()
 
 
-def test_default_headers_used_when_nothing_configured():
+def test_default_headers_used_when_nothing_configured(monkeypatch):
+    monkeypatch.delenv("HIVEMIND_TRUSTED_CLIENT_IP_HEADERS", raising=False)
+    monkeypatch.delenv("HIVEMIND_TRUSTED_PROXY_CIDRS", raising=False)
     proto = _make_proto()
     settings = _run_until_settings_loaded(proto)
     assert settings["trusted_headers"] == ("x-forwarded-for", "x-real-ip")

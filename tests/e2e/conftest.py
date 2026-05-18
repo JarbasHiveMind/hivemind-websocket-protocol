@@ -71,9 +71,8 @@ def _free_port() -> int:
 def _spawn_tornado(trusted_networks=(), trusted_headers=()):
     """Helper: spin up HiveMindWebsocketProtocol on a real Tornado server.
 
-    Returns `(TornadoServer, thread)`. Caller is responsible for teardown:
-    schedule `HiveMindTornadoWebSocket.loop.add_callback(loop.stop)` and
-    join the thread.
+    Returns `(TornadoServer, thread, loop)`. Caller is responsible for
+    teardown via `_teardown_tornado(thread, loop)`.
     """
     api_key = "test-api-key"
     password = "test-password"
@@ -92,6 +91,7 @@ def _spawn_tornado(trusted_networks=(), trusted_headers=()):
     port = _free_port()
     server_ready = threading.Event()
     server_error = []
+    loop_ref = []
 
     def _run():
         try:
@@ -101,6 +101,7 @@ def _spawn_tornado(trusted_networks=(), trusted_headers=()):
             asyncio.set_event_loop_policy(AnyThreadEventLoopPolicy())
             loop = ioloop.IOLoop()
             loop.make_current()
+            loop_ref.append(loop)
             HiveMindTornadoWebSocket.loop = loop
             HiveMindTornadoWebSocket.hm_protocol = master.hm_protocol
             app = web.Application(
@@ -124,11 +125,11 @@ def _spawn_tornado(trusted_networks=(), trusted_headers=()):
     time.sleep(0.05)
     server = TornadoServer(host="127.0.0.1", port=port,
                            api_key=api_key, password=password, master=master)
-    return server, thread
+    return server, thread, loop_ref[0]
 
 
-def _teardown_tornado(thread):
-    loop = HiveMindTornadoWebSocket.loop
+def _teardown_tornado(thread, loop):
+    """Stop the specific IOLoop this spawn created and join its thread."""
     if loop is not None:
         loop.add_callback(loop.stop)
     thread.join(timeout=5.0)
@@ -137,11 +138,11 @@ def _teardown_tornado(thread):
 @pytest.fixture
 def tornado_server():
     """Plain Tornado server, no trusted-proxy config."""
-    server, thread = _spawn_tornado()
+    server, thread, loop = _spawn_tornado()
     try:
         yield server
     finally:
-        _teardown_tornado(thread)
+        _teardown_tornado(thread, loop)
 
 
 @pytest.fixture
@@ -155,10 +156,10 @@ def tornado_server_with_proxy():
     from hivemind_websocket_protocol._client_ip import parse_networks
     networks = parse_networks(["127.0.0.0/8"])
     headers = ("x-forwarded-for", "x-real-ip")
-    server, thread = _spawn_tornado(
+    server, thread, loop = _spawn_tornado(
         trusted_networks=networks, trusted_headers=headers,
     )
     try:
         yield server
     finally:
-        _teardown_tornado(thread)
+        _teardown_tornado(thread, loop)
