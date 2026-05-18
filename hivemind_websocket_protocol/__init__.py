@@ -153,17 +153,24 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
 
     def _header_ip_candidates(self) -> list[str]:
         candidates: list[str] = []
-        for header in ("cf-connecting-ip", "x-real-ip", "x-client-ip"):
+        for header in (
+                "cf-connecting-ip",
+                "true-client-ip",
+                "x-envoy-external-address",
+                "x-real-ip",
+                "x-client-ip"
+        ):
             ip_value = self._normalize_ip(self.request.headers.get(header))
             if ip_value:
                 candidates.append(ip_value)
 
-        forwarded_for = self.request.headers.get("x-forwarded-for")
-        if isinstance(forwarded_for, str):
-            for value in forwarded_for.split(","):
-                ip_value = self._normalize_ip(value)
-                if ip_value:
-                    candidates.append(ip_value)
+        for header in ("x-forwarded-for", "x-original-forwarded-for"):
+            forwarded_for = self.request.headers.get(header)
+            if isinstance(forwarded_for, str):
+                for value in forwarded_for.split(","):
+                    ip_value = self._normalize_ip(value)
+                    if ip_value:
+                        candidates.append(ip_value)
 
         forwarded = self.request.headers.get("forwarded")
         if isinstance(forwarded, str):
@@ -195,8 +202,9 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
         for candidate in candidates:
             if self._is_global_ip(candidate):
                 return candidate
-        return remote_ip or (candidates[0] if candidates else None)
-
+        if candidates:
+            return candidates[0]
+        return remote_ip
 
     @staticmethod
     def decode_auth(auth: str) -> Tuple[str, str]:
