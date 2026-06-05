@@ -1,8 +1,24 @@
-# HiveMind WebSocket Protocol
+# hivemind-websocket-protocol
 
-WebSocket transport for HiveMind messages. This is the reference network
-protocol implementation; the `hivemind-core` plugin system allows it to be
-replaced with any other transport.
+WebSocket transport plugin for [hivemind-core](https://github.com/JarbasHiveMind/HiveMind-core).
+
+This is the **reference network protocol** for HiveMind. Satellites and clients connect to the hub
+over a persistent WebSocket connection (`ws://` or `wss://`). All HiveMessage frames are exchanged
+over this connection after an initial authentication handshake.
+
+## Where it fits
+
+```
+hivemind-core
+  └── hivemind-plugin-manager  (NetworkProtocolFactory loads plugins by entry-point)
+        └── hivemind-websocket-protocol  ← this repo
+              └── Tornado WebSocket server
+```
+
+The plugin registers under the `hivemind.network.protocol` entry-point group as
+`hivemind-websocket-plugin`. `hivemind-core` loads it automatically when `server.json`
+sets `network_protocol.module` to this name. It is the default transport and is loaded
+without any explicit config when none is provided.
 
 ## Install
 
@@ -10,45 +26,93 @@ replaced with any other transport.
 pip install hivemind-websocket-protocol
 ```
 
-## Quick Start
+## Quickstart
 
-The package registers itself as a `hivemind.network.protocol` entry-point
-(`hivemind-websocket-plugin`). `hivemind-core` loads it automatically; you do
-not instantiate `HiveMindWebsocketProtocol` directly in normal usage.
+The default transport requires no explicit configuration. To confirm it is active or to
+customize it, add the following to `~/.config/hivemind-core/server.json`:
 
-## Configuration
+```json
+{
+  "network_protocol": {
+    "module": "hivemind-websocket-plugin",
+    "hivemind-websocket-plugin": {
+      "host": "0.0.0.0",
+      "port": 5678
+    }
+  }
+}
+```
 
-Pass a config dict when constructing `HiveMindWebsocketProtocol`, or set the
-corresponding environment variables. Config dict keys take precedence over env
-vars.
+Start hivemind-core:
 
-### Connection
+```bash
+hivemind-core listen
+```
 
-| Config key | Env var | Default | Description |
+Clients connect to `ws://<host>:5678/?authorization=<base64(name:key)>`.
+
+### Enable TLS (wss://)
+
+```json
+{
+  "network_protocol": {
+    "module": "hivemind-websocket-plugin",
+    "hivemind-websocket-plugin": {
+      "host": "0.0.0.0",
+      "port": 5678,
+      "ssl": true,
+      "cert_dir": "/etc/hivemind/ssl",
+      "cert_name": "hivemind"
+    }
+  }
+}
+```
+
+If the key file does not exist at `<cert_dir>/<cert_name>.key`, a self-signed 2048-bit
+RSA certificate valid for 10 years is generated automatically. For production, replace
+the auto-generated cert with a properly signed one.
+
+### Behind a reverse proxy
+
+When hivemind-core runs behind nginx or another reverse proxy, configure trusted CIDRs
+so the plugin reads the real client IP from the forwarded header:
+
+```json
+{
+  "network_protocol": {
+    "module": "hivemind-websocket-plugin",
+    "hivemind-websocket-plugin": {
+      "trusted_proxy_cidrs": ["127.0.0.1/32"],
+      "trusted_client_ip_headers": ["x-forwarded-for"]
+    }
+  }
+}
+```
+
+Or via environment variables:
+
+```bash
+export HIVEMIND_TRUSTED_PROXY_CIDRS="127.0.0.1/32"
+export HIVEMIND_TRUSTED_CLIENT_IP_HEADERS="x-forwarded-for"
+```
+
+## Configuration reference
+
+| Key | Env var | Default | Description |
 |---|---|---|---|
-| `host` | — | `0.0.0.0` | Bind address (falls back to identity `default_master`) |
-| `port` | — | `5678` | Listen port (falls back to identity `default_port`) |
-| `ssl` | — | `false` | Enable TLS (`wss://`). A self-signed cert is generated if none exists. |
-| `cert_dir` | — | `$XDG_DATA_HOME/hivemind` | Directory for TLS cert/key files |
-| `cert_name` | — | `hivemind` | Base name for `<cert_name>.crt` / `<cert_name>.key` |
+| `host` | — | `0.0.0.0` | Bind address. Falls back to `identity.default_master`. |
+| `port` | — | `5678` | Listen port. Falls back to `identity.default_port`. |
+| `ssl` | — | `false` | Enable TLS. |
+| `cert_dir` | — | `$XDG_DATA_HOME/hivemind` | Directory for TLS cert and key files. |
+| `cert_name` | — | `hivemind` | Base filename; produces `<name>.crt` and `<name>.key`. |
+| `trusted_proxy_cidrs` | `HIVEMIND_TRUSTED_PROXY_CIDRS` | _(none)_ | Comma-separated CIDRs of trusted proxy addresses. |
+| `trusted_client_ip_headers` | `HIVEMIND_TRUSTED_CLIENT_IP_HEADERS` | `x-forwarded-for,x-real-ip` | Ordered list of headers to inspect for real client IP. |
 
-### Trusted-proxy IP resolution
+Both `trusted_proxy_cidrs` and `trusted_client_ip_headers` accept a string, list, or
+tuple. The feature is disabled unless at least one CIDR is configured.
 
-When HiveMind runs behind a reverse proxy, the real client IP must be read
-from a forwarded header. These options are ignored (headers never consulted)
-unless the direct peer address falls inside a configured CIDR.
+## Docs
 
-| Config key | Env var | Default | Description |
-|---|---|---|---|
-| `trusted_proxy_cidrs` | `HIVEMIND_TRUSTED_PROXY_CIDRS` | _(none)_ | Comma-separated CIDRs of trusted proxy addresses |
-| `trusted_client_ip_headers` | `HIVEMIND_TRUSTED_CLIENT_IP_HEADERS` | `x-forwarded-for,x-real-ip` | Ordered list of headers to inspect |
-
-Both config keys accept a string (`"10.0.0.0/8,192.168.0.0/16"`), a list, or
-a tuple. The env vars accept comma-separated strings.
-
-See [docs/configuration.md](docs/configuration.md) for the full reference and
-[docs/architecture.md](docs/architecture.md) for the IP-resolution algorithm.
-
-## License
-
-Apache-2.0
+- [docs/architecture.md](docs/architecture.md) — handler lifecycle, authorization flow, IP resolution
+- [docs/configuration.md](docs/configuration.md) — full configuration reference
+- [docs/operations.md](docs/operations.md) — TLS, reverse proxy, authoring a transport plugin
