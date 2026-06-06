@@ -79,15 +79,16 @@ def test_connect_accepts_client_without_message_blacklist(tornado_server):
         is_admin=current.is_admin,
         password=current.password,
     )
+    c = None
     tornado_server.listener.db.get_client_by_api_key = lambda key: user
-
-    c = _client(tornado_server)
     try:
+        c = _client(tornado_server)
         clients = _wait_clients(tornado_server, 1)
         conn = next(iter(clients.values()))
         assert conn.msg_blacklist == []
     finally:
-        c.close()
+        if c is not None:
+            c.close()
         tornado_server.listener.db.get_client_by_api_key = original
 
 
