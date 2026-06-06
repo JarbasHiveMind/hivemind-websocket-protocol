@@ -6,6 +6,7 @@ asserts behaviour of the transport itself (auth, frames over the wire,
 on_close cleanup, query-string parsing) belongs here.
 """
 import time
+from types import SimpleNamespace
 
 import pybase64
 import pytest
@@ -58,6 +59,36 @@ def test_connect_and_handshake_over_real_websocket(tornado_server):
         assert len(clients) == 1, f"expected 1 client, got {list(clients)}"
     finally:
         c.close()
+
+
+def test_connect_accepts_client_without_message_blacklist(tornado_server):
+    """Redis alpha clients no longer expose message_blacklist."""
+    original = tornado_server.listener.db.get_client_by_api_key
+    current = original(tornado_server.api_key)
+    user = SimpleNamespace(
+        client_id=current.client_id,
+        name=current.name,
+        api_key=current.api_key,
+        crypto_key=current.crypto_key,
+        skill_blacklist=current.skill_blacklist,
+        intent_blacklist=current.intent_blacklist,
+        allowed_types=current.allowed_types,
+        can_broadcast=current.can_broadcast,
+        can_propagate=current.can_propagate,
+        can_escalate=current.can_escalate,
+        is_admin=current.is_admin,
+        password=current.password,
+    )
+    tornado_server.listener.db.get_client_by_api_key = lambda key: user
+
+    c = _client(tornado_server)
+    try:
+        clients = _wait_clients(tornado_server, 1)
+        conn = next(iter(clients.values()))
+        assert conn.msg_blacklist == []
+    finally:
+        c.close()
+        tornado_server.listener.db.get_client_by_api_key = original
 
 
 def test_disconnect_releases_client_on_listener(tornado_server):

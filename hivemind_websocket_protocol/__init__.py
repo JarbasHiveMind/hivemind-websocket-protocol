@@ -149,8 +149,7 @@ class HiveMindWebsocketProtocol(NetworkProtocol):
             cert.gmtime_adj_notAfter(10 * 365 * 24 * 60 * 60)
             cert.set_issuer(cert.get_subject())
             cert.set_pubkey(k)
-            # TODO: Don't use SHA1
-            cert.sign(k, "sha1")
+            cert.sign(k, "sha256")
 
             open(cert_path, "wb").write(crypto.dump_certificate(crypto.FILETYPE_PEM, cert))
             open(key_path, "wb").write(crypto.dump_privatekey(crypto.FILETYPE_PEM, k))
@@ -253,7 +252,7 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
 
         self.client.name = f"{useragent}::{user.client_id}::{user.name}"
         self.client.crypto_key = user.crypto_key
-        self.client.msg_blacklist = user.message_blacklist or []
+        self.client.msg_blacklist = getattr(user, "message_blacklist", None) or []
         self.client.skill_blacklist = user.skill_blacklist or []
         self.client.intent_blacklist = user.intent_blacklist or []
         self.client.allowed_types = user.allowed_types
