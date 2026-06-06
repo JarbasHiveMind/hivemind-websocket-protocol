@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.1a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.2.1a1) (2026-06-06)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.2.0a3...0.2.1a1)
+
+**Merged pull requests:**
+
+- fix: drop removed message\_blacklist read \(+ sha256 cert\) [\#28](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/28) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.2.0a3](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.2.0a3) (2026-06-05)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.2.0a2...0.2.0a3)
