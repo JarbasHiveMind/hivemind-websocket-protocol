@@ -1,5 +1,6 @@
 import asyncio
 import dataclasses
+import math
 import os
 import os.path
 import random
@@ -36,6 +37,8 @@ from hivemind_websocket_protocol._client_ip import (
 
 
 DEFAULT_TRUSTED_HEADERS = "x-forwarded-for,x-real-ip"
+DEFAULT_WEBSOCKET_PING_INTERVAL = 30.0
+DEFAULT_WEBSOCKET_PING_TIMEOUT = 20.0
 
 
 def _split_csv(value: Any) -> Tuple[str, ...]:
@@ -44,6 +47,23 @@ def _split_csv(value: Any) -> Tuple[str, ...]:
     if isinstance(value, str):
         return tuple(v.strip() for v in value.split(",") if v.strip())
     return tuple(str(v).strip() for v in value if str(v).strip())
+
+
+def _non_negative_float(value: Any, default: float, name: str) -> float:
+    if value is None:
+        return default
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        LOG.warning(f"Ignoring invalid {name}: {value!r}")
+        return default
+    if not math.isfinite(parsed):
+        LOG.warning(f"Ignoring invalid {name}: {value!r}")
+        return default
+    if parsed < 0:
+        LOG.warning(f"Ignoring negative {name}: {value!r}")
+        return default
+    return parsed
 
 
 @dataclasses.dataclass
@@ -57,6 +77,28 @@ class HiveMindWebsocketProtocol(NetworkProtocol):
     config: Dict[str, Any] = dataclasses.field(default_factory=dict)
     hm_protocol: Optional[HiveMindListenerProtocol] = None
     callbacks: ClientCallbacks = dataclasses.field(default_factory=ClientCallbacks)
+
+    def _websocket_ping_settings(self) -> Dict[str, float]:
+        interval = self.config.get(
+            "websocket_ping_interval",
+            os.getenv("HIVEMIND_WEBSOCKET_PING_INTERVAL"),
+        )
+        timeout = self.config.get(
+            "websocket_ping_timeout",
+            os.getenv("HIVEMIND_WEBSOCKET_PING_TIMEOUT"),
+        )
+        return {
+            "websocket_ping_interval": _non_negative_float(
+                interval,
+                DEFAULT_WEBSOCKET_PING_INTERVAL,
+                "websocket_ping_interval",
+            ),
+            "websocket_ping_timeout": _non_negative_float(
+                timeout,
+                DEFAULT_WEBSOCKET_PING_TIMEOUT,
+                "websocket_ping_timeout",
+            ),
+        }
 
     def run(self):
         LOG.debug(f"websocket server config: {self.config}")
@@ -87,16 +129,18 @@ class HiveMindWebsocketProtocol(NetworkProtocol):
         port = int(self.config.get("port") or self.identity.default_port or 5678)
 
         routes: list = [("/", HiveMindTornadoWebSocket)]
+        websocket_ping_settings = self._websocket_ping_settings()
         application = web.Application(
             routes,
             trusted_networks=trusted_networks,
             trusted_headers=trusted_headers,
+            **websocket_ping_settings,
         )
         if ssl:
             cert_file = f"{cert_dir}/{cert_name}.crt"
             key_file = f"{cert_dir}/{cert_name}.key"
             if not os.path.isfile(key_file):
-                LOG.info(f"generating self-signed SSL certificate")
+                LOG.info("generating self-signed SSL certificate")
                 cert_file, key_file = self.create_self_signed_cert(cert_dir, cert_name)
             LOG.debug("using ssl key at " + key_file)
             LOG.debug("using ssl certificate at " + cert_file)
