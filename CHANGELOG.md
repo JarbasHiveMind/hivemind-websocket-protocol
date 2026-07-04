@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.2a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.2.2a1) (2026-07-04)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.2.1a1...0.2.2a1)
+
+**Merged pull requests:**
+
+- fix: pin poorman-handshake\>=2.0.0a1 + disable-able runtime password backstop [\#31](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/31) ([JarbasAl](https://github.com/JarbasAl))
+- Add websocket ping settings [\#30](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/30) ([goldyfruit](https://github.com/goldyfruit))
+
 ## [0.2.1a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.2.1a1) (2026-06-06)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.2.0a3...0.2.1a1)
