@@ -17,9 +17,9 @@ from hivemind_bus_client import HiveMessageBusClient
 
 # --- helpers --------------------------------------------------------------
 
-def _client(server, *, useragent="e2e", password=None):
+def _client(server, *, useragent="e2e", password=None, key=None):
     c = HiveMessageBusClient(
-        key=server.api_key,
+        key=key or server.api_key,
         password=password if password is not None else server.password,
         host=server.host,
         port=server.port,
@@ -70,8 +70,21 @@ def test_disconnect_releases_client_on_listener(tornado_server):
 
 
 def test_multiple_concurrent_clients(tornado_server):
+    # each client needs its own api key: protocol v3 pins the Noise static
+    # pubkey of the first connection for a given key, so a second client
+    # sharing the same key would be rejected as an impostor
+    second_key = "test-api-key-b"
+    tornado_server.master.register_satellite(
+        second_key,
+        password=tornado_server.password,
+        allowed_types=[
+            "recognizer_loop:utterance",
+            "recognizer_loop:b64_audio",
+            "speak",
+        ],
+    )
     a = _client(tornado_server, useragent="ua-a")
-    b = _client(tornado_server, useragent="ua-b")
+    b = _client(tornado_server, useragent="ua-b", key=second_key)
     try:
         _wait_clients(tornado_server, 2)
         assert len(tornado_server.listener.clients) == 2
@@ -92,9 +105,10 @@ def test_bad_api_key_is_rejected(tornado_server):
         useragent="bad-key",
         self_signed=False,
     )
-    # connect() raises if handshake times out; catch that.
+    # bound the handshake retries so a rejected key fails fast instead of
+    # reconnecting forever
     with pytest.raises(RuntimeError):
-        bad.connect()
+        bad.connect(handshake_max_retries=2)
     bad.close()
     _wait(lambda: not tornado_server.listener.clients, timeout=2)
     assert not tornado_server.listener.clients

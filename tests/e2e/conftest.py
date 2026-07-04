@@ -75,7 +75,7 @@ def _spawn_tornado(trusted_networks=(), trusted_headers=()):
     teardown via `_teardown_tornado(thread, loop)`.
     """
     api_key = "test-api-key"
-    password = "test-password"
+    password = "correct-horse-battery-staple-9$"
 
     master = MasterNode.create("M0", require_crypto=False, handshake_enabled=True)
     master.register_satellite(
