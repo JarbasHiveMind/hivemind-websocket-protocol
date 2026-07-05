@@ -153,6 +153,64 @@ def test_open_uses_direct_api_key_lookup_without_sync():
     assert seen_clients[0].name == "agent::1::unit-client"
 
 
+def test_open_syncs_once_after_api_key_miss():
+    user = SimpleNamespace(
+        client_id=2,
+        name="fresh-client",
+        crypto_key=None,
+        skill_blacklist=[],
+        intent_blacklist=[],
+        allowed_types=["recognizer_loop:utterance"],
+        can_broadcast=True,
+        can_propagate=True,
+        can_escalate=True,
+        is_admin=False,
+        password=None,
+    )
+
+    state = {"synced": False, "syncs": 0}
+
+    def sync():
+        state["syncs"] += 1
+        state["synced"] = True
+
+    def lookup(key):
+        if key == "fresh-key" and state["synced"]:
+            return user
+        return None
+
+    seen_clients = []
+    invalid_clients = []
+    db = SimpleNamespace(sync=sync, get_client_by_api_key=lookup)
+    hm_protocol = SimpleNamespace(
+        db=db,
+        identity=SimpleNamespace(private_key=None),
+        handshake_enabled=True,
+        require_crypto=False,
+        handle_new_client=seen_clients.append,
+        handle_invalid_key_connected=invalid_clients.append,
+        handle_invalid_protocol_version=lambda client: None,
+    )
+
+    handler = HiveMindTornadoWebSocket.__new__(HiveMindTornadoWebSocket)
+    handler.hm_protocol = hm_protocol
+    handler.request = SimpleNamespace(remote_ip="127.0.0.1", headers={})
+    handler.application = SimpleNamespace(settings={})
+    handler.loop = SimpleNamespace(install=lambda: None)
+    handler.write_message = lambda payload, is_bin=False: None
+    handler.close = lambda *args, **kwargs: None
+    handler.get_query_argument = lambda name, default=None: pybase64.b64encode(
+        b"agent:fresh-key"
+    ).decode("ascii")
+
+    handler.open()
+
+    assert state["syncs"] == 1
+    assert len(invalid_clients) == 0
+    assert len(seen_clients) == 1
+    assert seen_clients[0].name == "agent::2::fresh-client"
+
+
 # --- self-signed cert generation ------------------------------------------
 
 def test_create_self_signed_cert_writes_files(tmp_path):
