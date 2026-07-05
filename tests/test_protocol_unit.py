@@ -11,7 +11,9 @@ import socket
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
+import pybase64
 import pytest
 from tornado.platform.asyncio import AnyThreadEventLoopPolicy
 import asyncio
@@ -97,6 +99,58 @@ def test_websocket_ping_settings_non_finite_values_fall_back(monkeypatch, value)
         "websocket_ping_interval": DEFAULT_WEBSOCKET_PING_INTERVAL,
         "websocket_ping_timeout": DEFAULT_WEBSOCKET_PING_TIMEOUT,
     }
+
+
+# --- open() auth path ------------------------------------------------------
+
+def test_open_uses_direct_api_key_lookup_without_sync():
+    user = SimpleNamespace(
+        client_id=1,
+        name="unit-client",
+        crypto_key=None,
+        skill_blacklist=[],
+        intent_blacklist=[],
+        allowed_types=["recognizer_loop:utterance"],
+        can_broadcast=True,
+        can_propagate=True,
+        can_escalate=True,
+        is_admin=False,
+        password=None,
+    )
+
+    def fail_sync():
+        raise AssertionError("db.sync must not run on websocket open")
+
+    seen_clients = []
+    db = SimpleNamespace(
+        sync=fail_sync,
+        get_client_by_api_key=lambda key: user if key == "api-key" else None,
+    )
+    hm_protocol = SimpleNamespace(
+        db=db,
+        identity=SimpleNamespace(private_key=None),
+        handshake_enabled=True,
+        require_crypto=False,
+        handle_new_client=seen_clients.append,
+        handle_invalid_key_connected=lambda client: None,
+        handle_invalid_protocol_version=lambda client: None,
+    )
+
+    handler = HiveMindTornadoWebSocket.__new__(HiveMindTornadoWebSocket)
+    handler.hm_protocol = hm_protocol
+    handler.request = SimpleNamespace(remote_ip="127.0.0.1", headers={})
+    handler.application = SimpleNamespace(settings={})
+    handler.loop = SimpleNamespace(install=lambda: None)
+    handler.write_message = lambda payload, is_bin=False: None
+    handler.close = lambda *args, **kwargs: None
+    handler.get_query_argument = lambda name, default=None: pybase64.b64encode(
+        b"agent:api-key"
+    ).decode("ascii")
+
+    handler.open()
+
+    assert len(seen_clients) == 1
+    assert seen_clients[0].name == "agent::1::unit-client"
 
 
 # --- self-signed cert generation ------------------------------------------
