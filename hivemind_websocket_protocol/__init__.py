@@ -315,6 +315,14 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
             hm_protocol=self.hm_protocol
         )
         user: Client = self.hm_protocol.db.get_client_by_api_key(key)
+        if not user:
+            sync = getattr(self.hm_protocol.db, "sync", None)
+            if callable(sync):
+                try:
+                    sync()
+                    user = self.hm_protocol.db.get_client_by_api_key(key)
+                except Exception:
+                    LOG.exception("Client database sync failed while retrying api key lookup")
 
         if not user:
             LOG.error("Client provided an invalid api key")
