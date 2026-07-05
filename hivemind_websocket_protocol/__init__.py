@@ -314,7 +314,6 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
             name=useragent,
             hm_protocol=self.hm_protocol
         )
-        self.hm_protocol.db.sync()
         user: Client = self.hm_protocol.db.get_client_by_api_key(key)
 
         if not user:
