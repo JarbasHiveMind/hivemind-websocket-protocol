@@ -287,8 +287,8 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
             now = time.monotonic()
             if now - cls._last_sync_ts < cls._sync_debounce_s:
                 return
+            cls._last_sync_ts = now
             sync()
-            cls._last_sync_ts = time.monotonic()
 
     def open(self) -> None:
         """

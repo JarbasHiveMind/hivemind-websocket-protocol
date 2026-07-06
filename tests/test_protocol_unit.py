@@ -284,6 +284,24 @@ def test_open_reports_sync_failure_as_server_error():
     }
 
 
+def test_open_debounces_failed_sync_after_api_key_miss():
+    HiveMindTornadoWebSocket._last_sync_ts = 0.0
+    state = {"syncs": 0}
+
+    def fail_sync():
+        state["syncs"] += 1
+        raise RuntimeError("redis unavailable")
+
+    db = SimpleNamespace(
+        sync=fail_sync,
+        get_client_by_api_key=lambda key: None,
+    )
+    _open_handler(db, key="fresh-key", closes=[]).open()
+    _open_handler(db, key="fresh-key", invalid_clients=[]).open()
+
+    assert state["syncs"] == 1
+
+
 # --- self-signed cert generation ------------------------------------------
 
 def test_create_self_signed_cert_writes_files(tmp_path):
