@@ -147,8 +147,10 @@ class HiveMindWebsocketProtocol(NetworkProtocol):
             trusted_headers=trusted_headers,
             **websocket_ping_settings,
         )
+        startup_error: Optional[Exception] = None
 
         def start_listener() -> None:
+            nonlocal startup_error
             try:
                 if ssl:
                     cert_file = f"{cert_dir}/{cert_name}.crt"
@@ -166,12 +168,15 @@ class HiveMindWebsocketProtocol(NetworkProtocol):
                 else:
                     application.listen(port, host)
                     LOG.info("ws listener started")
-            except Exception:
+            except Exception as e:
+                startup_error = e
                 LOG.exception("failed to start websocket listener")
                 loop.stop()
 
         loop.add_callback(start_listener)
         loop.start()  # blocking
+        if startup_error is not None:
+            raise startup_error
 
     @staticmethod
     def create_self_signed_cert(
