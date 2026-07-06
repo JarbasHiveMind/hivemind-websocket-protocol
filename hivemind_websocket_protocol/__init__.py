@@ -4,6 +4,7 @@ import math
 import os
 import os.path
 import random
+import threading
 import time
 from os import makedirs
 from os.path import exists, join
@@ -237,6 +238,9 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
     hm_protocol = None
     source_ip: Optional[str] = None
     last_pong: Optional[float] = None
+    _sync_lock = threading.Lock()
+    _last_sync_ts = 0.0
+    _sync_debounce_s = 1.0
 
     def _client_ip(self) -> Optional[str]:
         return resolve_client_ip(
@@ -280,6 +284,17 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
 
     def on_pong(self, data: bytes) -> None:
         self.last_pong = time.monotonic()
+    @classmethod
+    def _sync_client_database(cls, db: Any) -> None:
+        sync = getattr(db, "sync", None)
+        if not callable(sync):
+            return
+        with cls._sync_lock:
+            now = time.monotonic()
+            if now - cls._last_sync_ts < cls._sync_debounce_s:
+                return
+            sync()
+            cls._last_sync_ts = time.monotonic()
 
     def open(self) -> None:
         """
@@ -326,16 +341,21 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
             hm_protocol=self.hm_protocol
         )
         user: Client = self.hm_protocol.db.get_client_by_api_key(key)
+        sync_error = False
         if not user:
-            sync = getattr(self.hm_protocol.db, "sync", None)
-            if callable(sync):
-                try:
-                    sync()
-                    user = self.hm_protocol.db.get_client_by_api_key(key)
-                except Exception:
-                    LOG.exception("Client database sync failed while retrying api key lookup")
+            try:
+                self._sync_client_database(self.hm_protocol.db)
+            except Exception:
+                sync_error = True
+                LOG.exception("Client database sync failed while retrying api key lookup")
+            else:
+                user = self.hm_protocol.db.get_client_by_api_key(key)
 
         if not user:
+            if sync_error:
+                LOG.error("Client database unavailable during api key lookup")
+                self.close(code=1011, reason="client database unavailable")
+                return
             LOG.error("Client provided an invalid api key")
             self.hm_protocol.handle_invalid_key_connected(self.client)
             self.close()
