@@ -23,6 +23,7 @@ from tornado import ioloop
 from tornado import web
 from tornado.platform.asyncio import AnyThreadEventLoopPolicy
 from tornado.websocket import WebSocketHandler
+from tornado.websocket import WebSocketClosedError, WebSocketHandler
 
 try:
     from hivemind_core.config import runtime_password_min_bits
@@ -325,6 +326,12 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
             def _write():
                 try:
                     self.write_message(payload, is_bin)
+                except WebSocketClosedError:
+                    LOG.debug(
+                        "Websocket already closed while writing to "
+                        f"{self._peer_label(getattr(self.client, 'peer', 'unknown'))}"
+                    )
+                    self.close()
                 except Exception as exc:
                     LOG.warning(
                         "Could not write websocket message to "
