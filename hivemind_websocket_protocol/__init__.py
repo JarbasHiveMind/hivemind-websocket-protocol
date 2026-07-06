@@ -18,7 +18,6 @@ from ovos_utils.xdg_utils import xdg_data_home
 from poorman_handshake import PasswordHandShake
 from tornado import ioloop
 from tornado import web
-from tornado.platform.asyncio import AnyThreadEventLoopPolicy
 from tornado.websocket import WebSocketHandler
 
 from hivemind_bus_client.message import HiveMessageType
@@ -110,8 +109,10 @@ class HiveMindWebsocketProtocol(NetworkProtocol):
 
     def run(self):
         LOG.debug(f"websocket server config: {self.config}")
-        asyncio.set_event_loop_policy(AnyThreadEventLoopPolicy())
-        HiveMindTornadoWebSocket.loop = ioloop.IOLoop.current()
+        asyncio_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(asyncio_loop)
+        loop = ioloop.IOLoop.current()
+        HiveMindTornadoWebSocket.loop = loop
         HiveMindTornadoWebSocket.hm_protocol = self.hm_protocol
 
         if "trusted_proxy_cidrs" in self.config:
@@ -144,23 +145,31 @@ class HiveMindWebsocketProtocol(NetworkProtocol):
             trusted_headers=trusted_headers,
             **websocket_ping_settings,
         )
-        if ssl:
-            cert_file = f"{cert_dir}/{cert_name}.crt"
-            key_file = f"{cert_dir}/{cert_name}.key"
-            if not os.path.isfile(key_file):
-                LOG.info("generating self-signed SSL certificate")
-                cert_file, key_file = self.create_self_signed_cert(cert_dir, cert_name)
-            LOG.debug("using ssl key at " + key_file)
-            LOG.debug("using ssl certificate at " + cert_file)
-            ssl_options = {"certfile": cert_file, "keyfile": key_file}
 
-            LOG.info("wss listener started")
-            application.listen(port, host, ssl_options=ssl_options)
-        else:
-            LOG.info("ws listener started")
-            application.listen(port, host)
+        def start_listener() -> None:
+            try:
+                if ssl:
+                    cert_file = f"{cert_dir}/{cert_name}.crt"
+                    key_file = f"{cert_dir}/{cert_name}.key"
+                    if not os.path.isfile(key_file):
+                        LOG.info("generating self-signed SSL certificate")
+                        cert_file, key_file = self.create_self_signed_cert(
+                            cert_dir, cert_name
+                        )
+                    LOG.debug("using ssl key at " + key_file)
+                    LOG.debug("using ssl certificate at " + cert_file)
+                    ssl_options = {"certfile": cert_file, "keyfile": key_file}
+                    application.listen(port, host, ssl_options=ssl_options)
+                    LOG.info("wss listener started")
+                else:
+                    application.listen(port, host)
+                    LOG.info("ws listener started")
+            except Exception:
+                LOG.exception("failed to start websocket listener")
+                loop.stop()
 
-        HiveMindTornadoWebSocket.loop.start()  # blocking
+        loop.add_callback(start_listener)
+        loop.start()  # blocking
 
     @staticmethod
     def create_self_signed_cert(
