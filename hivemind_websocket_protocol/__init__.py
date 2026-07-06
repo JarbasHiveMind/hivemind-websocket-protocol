@@ -270,9 +270,9 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
                 message.msg_type == HiveMessageType.BUS
                 and message.payload.msg_type == "recognizer_loop:b64_audio"
         ):
-            LOG.info(f"Received {peer} sent base64 audio for STT")
+            LOG.debug(f"Received {peer} sent base64 audio for STT")
         else:
-            LOG.info(f"Received {peer} message: {message}")
+            LOG.debug(f"Received {peer} message: {message}")
         self.hm_protocol.handle_message(message, self.client)
 
     def _peer_label(self, peer: str) -> str:
@@ -306,7 +306,7 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
             )
             self.close(code=1008, reason="invalid authorization")
             return
-        LOG.info(f"Authorizing client from {self.source_ip or 'unknown'} - {useragent}:{key}")
+        LOG.debug(f"Authorizing client from {self.source_ip or 'unknown'} - {useragent}")
 
         def do_send(payload: str, is_bin: bool):
             def _write():
@@ -394,7 +394,7 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
                 f"(no client was ever attached)"
             )
             return
-        LOG.info(f"disconnecting client: {self._peer_label(client.peer)}")
+        LOG.debug(f"disconnecting client: {self._peer_label(client.peer)}")
         self.hm_protocol.handle_client_disconnected(client)
 
     def check_origin(self, origin) -> bool:
