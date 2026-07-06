@@ -138,7 +138,10 @@ def _open_handler(db, key="api-key", seen_clients=None,
     handler.hm_protocol = hm_protocol
     handler.request = SimpleNamespace(remote_ip="127.0.0.1", headers={})
     handler.application = SimpleNamespace(settings={})
-    handler.loop = SimpleNamespace(install=lambda: None)
+    handler.loop = SimpleNamespace(
+        install=lambda: None,
+        add_callback=lambda callback, *args, **kwargs: callback(*args, **kwargs),
+    )
     handler.write_message = lambda payload, is_bin=False: None
     handler.close = lambda *args, **kwargs: closes.append(
         {"args": args, "kwargs": kwargs}
@@ -147,6 +150,31 @@ def _open_handler(db, key="api-key", seen_clients=None,
         f"agent:{key}".encode("utf-8")
     ).decode("ascii")
     return handler
+
+
+def test_open_schedules_downstream_writes_on_ioloop():
+    user = _auth_user()
+    scheduled = []
+    writes = []
+    handler = _open_handler(
+        SimpleNamespace(get_client_by_api_key=lambda key: user),
+        seen_clients=[],
+    )
+    handler.loop = SimpleNamespace(
+        add_callback=lambda callback, *args, **kwargs: scheduled.append(
+            (callback, args, kwargs)
+        )
+    )
+    handler.write_message = lambda payload, is_bin=False: writes.append((payload, is_bin))
+
+    handler.open()
+    handler.client.send_msg("payload", True)
+
+    assert writes == []
+    assert len(scheduled) == 1
+    callback, args, kwargs = scheduled.pop()
+    callback(*args, **kwargs)
+    assert writes == [("payload", True)]
 
 
 def test_open_uses_direct_api_key_lookup_without_sync():

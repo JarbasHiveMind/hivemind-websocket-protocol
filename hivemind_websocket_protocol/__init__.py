@@ -309,12 +309,21 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
         LOG.info(f"Authorizing client from {self.source_ip or 'unknown'} - {useragent}:{key}")
 
         def do_send(payload: str, is_bin: bool):
-            self.loop.install()  # TODO is this needed?
-            self.write_message(payload, is_bin)
+            def _write():
+                try:
+                    self.write_message(payload, is_bin)
+                except Exception as exc:
+                    LOG.warning(
+                        "Could not write websocket message to "
+                        f"{self._peer_label(getattr(self.client, 'peer', 'unknown'))}: "
+                        f"{type(exc).__name__}: {exc!r}"
+                    )
+                    self.close()
+
+            self.loop.add_callback(_write)
 
         def do_disconnect():
-            self.loop.install()  # TODO is this needed?
-            self.close()
+            self.loop.add_callback(self.close)
 
         self.client = HiveMindClientConnection(
             key=key,
