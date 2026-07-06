@@ -16,6 +16,7 @@ from types import SimpleNamespace
 import pybase64
 import pytest
 from tornado.platform.asyncio import AnyThreadEventLoopPolicy
+from tornado.websocket import WebSocketClosedError
 import asyncio
 
 from hivemind_websocket_protocol import (
@@ -175,6 +176,36 @@ def test_open_schedules_downstream_writes_on_ioloop():
     callback, args, kwargs = scheduled.pop()
     callback(*args, **kwargs)
     assert writes == [("payload", True)]
+
+
+def test_open_treats_closed_downstream_write_as_debug(monkeypatch):
+    user = _auth_user()
+    closes = []
+    warnings = []
+    debugs = []
+    handler = _open_handler(
+        SimpleNamespace(get_client_by_api_key=lambda key: user),
+        seen_clients=[],
+        closes=closes,
+    )
+    handler.write_message = lambda payload, is_bin=False: (_ for _ in ()).throw(
+        WebSocketClosedError()
+    )
+    monkeypatch.setattr(
+        "hivemind_websocket_protocol.LOG.warning",
+        lambda *args, **kwargs: warnings.append((args, kwargs)),
+    )
+    monkeypatch.setattr(
+        "hivemind_websocket_protocol.LOG.debug",
+        lambda *args, **kwargs: debugs.append((args, kwargs)),
+    )
+
+    handler.open()
+    handler.client.send_msg("payload", False)
+
+    assert closes
+    assert not warnings
+    assert debugs
 
 
 def test_open_uses_direct_api_key_lookup_without_sync():
