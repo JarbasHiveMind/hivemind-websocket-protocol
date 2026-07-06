@@ -342,6 +342,27 @@ def test_run_starts_and_serves_on_plain_ws():
     assert not t.is_alive(), "run() did not return after ioloop.stop()"
 
 
+def test_run_raises_when_listener_bind_fails():
+    """Bind failures should propagate instead of looking like clean exits."""
+    master = MasterNode.create("MF", require_crypto=False, handshake_enabled=True)
+    blocker = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    blocker.bind(("127.0.0.1", 0))
+    blocker.listen(1)
+    port = blocker.getsockname()[1]
+    proto = HiveMindWebsocketProtocol(
+        config={"host": "127.0.0.1", "port": port, "ssl": False},
+        hm_protocol=master.hm_protocol,
+    )
+    if hasattr(HiveMindTornadoWebSocket, "loop"):
+        del HiveMindTornadoWebSocket.loop
+
+    try:
+        with pytest.raises(OSError):
+            proto.run()
+    finally:
+        blocker.close()
+
+
 def test_run_ssl_path_uses_existing_cert(tmp_path):
     """SSL branch in run(): existing cert is picked up; no regeneration."""
     cert, key = HiveMindWebsocketProtocol.create_self_signed_cert(
