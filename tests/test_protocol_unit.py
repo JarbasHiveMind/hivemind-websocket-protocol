@@ -28,6 +28,12 @@ from hivemind_websocket_protocol import (
 from hivescope.node import MasterNode
 
 
+@pytest.fixture(autouse=True)
+def _reset_websocket_sync_state():
+    HiveMindTornadoWebSocket._last_sync_ts = 0.0
+    HiveMindTornadoWebSocket._last_sync_error = None
+
+
 # --- version.py module load ------------------------------------------------
 
 def test_version_module_exposes_constants_and_string():
@@ -208,6 +214,42 @@ def test_open_treats_closed_downstream_write_as_debug(monkeypatch):
     assert debugs
 
 
+def test_on_message_drains_inbound_frames_off_ioloop(monkeypatch):
+    submitted = []
+
+    class FakeExecutor:
+        def submit(self, callback):
+            submitted.append(callback)
+            return SimpleNamespace()
+
+    monkeypatch.setattr(
+        HiveMindTornadoWebSocket,
+        "_executor",
+        classmethod(lambda cls: FakeExecutor()),
+    )
+
+    handler = HiveMindTornadoWebSocket.__new__(HiveMindTornadoWebSocket)
+    handler.initialize()
+    handler.source_ip = None
+    handler.client = SimpleNamespace(peer="peer")
+    handler.close = lambda *args, **kwargs: None
+    handler.loop = SimpleNamespace(
+        add_callback=lambda callback, *args, **kwargs: callback(*args, **kwargs)
+    )
+    seen = []
+    handler._handle_inbound_message = seen.append
+
+    handler.on_message("one")
+    handler.on_message("two")
+
+    assert seen == []
+    assert len(submitted) == 1
+
+    submitted[0]()
+
+    assert seen == ["one", "two"]
+
+
 def test_open_uses_direct_api_key_lookup_without_sync():
     user = _auth_user()
 
@@ -327,10 +369,19 @@ def test_open_debounces_failed_sync_after_api_key_miss():
         sync=fail_sync,
         get_client_by_api_key=lambda key: None,
     )
-    _open_handler(db, key="fresh-key", closes=[]).open()
-    _open_handler(db, key="fresh-key", invalid_clients=[]).open()
+    closes = []
+    invalid_clients = []
+    _open_handler(db, key="fresh-key", closes=closes).open()
+    _open_handler(
+        db,
+        key="fresh-key",
+        closes=closes,
+        invalid_clients=invalid_clients,
+    ).open()
 
     assert state["syncs"] == 1
+    assert invalid_clients == []
+    assert [close["kwargs"]["code"] for close in closes] == [1011, 1011]
 
 
 # --- self-signed cert generation ------------------------------------------
