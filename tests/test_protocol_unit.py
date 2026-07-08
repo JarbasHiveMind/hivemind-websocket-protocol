@@ -357,8 +357,9 @@ def test_open_reports_sync_failure_as_server_error():
     }
 
 
-def test_open_debounces_failed_sync_after_api_key_miss():
+def test_open_debounces_failed_sync_after_api_key_miss(monkeypatch):
     HiveMindTornadoWebSocket._last_sync_ts = 0.0
+    monkeypatch.setattr(HiveMindTornadoWebSocket, "_sync_debounce_s", 60.0)
     state = {"syncs": 0}
 
     def fail_sync():
