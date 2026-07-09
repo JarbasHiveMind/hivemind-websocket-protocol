@@ -225,6 +225,50 @@ class HiveMindWebsocketProtocol(NetworkProtocol):
         return cert_path, key_path
 
 
+class ClientDatabaseSync:
+    """Collapses concurrent ``db.sync()`` calls into one per ``debounce_s``.
+
+    An api-key miss makes every connection want a fresh database. Without
+    this, a burst of unknown keys becomes a burst of syncs. One instance is
+    shared by every connection on the server, so the state is deliberately
+    process-wide rather than per-handler.
+
+    A failing sync is remembered for the rest of the window and re-raised at
+    the callers that arrive during it, rather than each of them retrying a
+    database that has just proven unreachable.
+    """
+
+    def __init__(self, debounce_s: float = 1.0):
+        self.debounce_s = debounce_s
+        self._lock = threading.Lock()
+        self._last_ts = 0.0
+        self._last_error: Optional[Exception] = None
+
+    def reset(self) -> None:
+        with self._lock:
+            self._last_ts = 0.0
+            self._last_error = None
+
+    def sync(self, db: Any) -> None:
+        sync = getattr(db, "sync", None)
+        if not callable(sync):
+            return
+        with self._lock:
+            now = time.monotonic()
+            if now - self._last_ts < self.debounce_s:
+                if self._last_error is not None:
+                    raise self._last_error
+                return
+            self._last_ts = now
+            try:
+                sync()
+            except Exception as exc:
+                self._last_error = exc
+                raise
+            else:
+                self._last_error = None
+
+
 class HiveMindTornadoWebSocket(WebSocketHandler):
     """
     WebSocket handler for managing HiveMind client connections.
@@ -234,10 +278,7 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
     """
     hm_protocol = None
     source_ip: Optional[str] = None
-    _sync_lock = threading.Lock()
-    _last_sync_ts = 0.0
-    _last_sync_error: Optional[Exception] = None
-    _sync_debounce_s = 1.0
+    db_sync = ClientDatabaseSync()
 
     def _client_ip(self) -> Optional[str]:
         return resolve_client_ip(
@@ -288,23 +329,7 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
 
     @classmethod
     def _sync_client_database(cls, db: Any) -> None:
-        sync = getattr(db, "sync", None)
-        if not callable(sync):
-            return
-        with cls._sync_lock:
-            now = time.monotonic()
-            if now - cls._last_sync_ts < cls._sync_debounce_s:
-                if cls._last_sync_error is not None:
-                    raise cls._last_sync_error
-                return
-            cls._last_sync_ts = now
-            try:
-                sync()
-            except Exception as exc:
-                cls._last_sync_error = exc
-                raise
-            else:
-                cls._last_sync_error = None
+        cls.db_sync.sync(db)
 
     def open(self) -> None:
         """

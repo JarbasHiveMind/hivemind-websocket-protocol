@@ -30,8 +30,7 @@ from hivescope.node import MasterNode
 
 @pytest.fixture(autouse=True)
 def _reset_websocket_sync_state():
-    HiveMindTornadoWebSocket._last_sync_ts = 0.0
-    HiveMindTornadoWebSocket._last_sync_error = None
+    HiveMindTornadoWebSocket.db_sync.reset()
 
 
 # --- version.py module load ------------------------------------------------
@@ -234,7 +233,7 @@ def test_open_uses_direct_api_key_lookup_without_sync():
 
 
 def test_open_syncs_once_after_api_key_miss():
-    HiveMindTornadoWebSocket._last_sync_ts = 0.0
+    HiveMindTornadoWebSocket.db_sync.reset()
     user = _auth_user(client_id=2, name="fresh-client")
 
     state = {"synced": False, "syncs": 0}
@@ -267,7 +266,7 @@ def test_open_syncs_once_after_api_key_miss():
 
 
 def test_open_debounces_sync_after_recent_api_key_miss():
-    HiveMindTornadoWebSocket._last_sync_ts = 0.0
+    HiveMindTornadoWebSocket.db_sync.reset()
     user = _auth_user(client_id=3, name="synced-client")
     state = {"synced": False, "syncs": 0}
 
@@ -294,7 +293,7 @@ def test_open_debounces_sync_after_recent_api_key_miss():
 
 
 def test_open_reports_sync_failure_as_server_error():
-    HiveMindTornadoWebSocket._last_sync_ts = 0.0
+    HiveMindTornadoWebSocket.db_sync.reset()
 
     def fail_sync():
         raise RuntimeError("redis unavailable")
@@ -322,8 +321,8 @@ def test_open_reports_sync_failure_as_server_error():
 
 
 def test_open_debounces_failed_sync_after_api_key_miss(monkeypatch):
-    HiveMindTornadoWebSocket._last_sync_ts = 0.0
-    monkeypatch.setattr(HiveMindTornadoWebSocket, "_sync_debounce_s", 60.0)
+    HiveMindTornadoWebSocket.db_sync.reset()
+    monkeypatch.setattr(HiveMindTornadoWebSocket.db_sync, "debounce_s", 60.0)
     state = {"syncs": 0}
 
     def fail_sync():
