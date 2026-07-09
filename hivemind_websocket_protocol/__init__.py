@@ -400,8 +400,6 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
 
         self.client.name = f"{useragent}::{user.client_id}::{user.name}"
         self.client.crypto_key = user.crypto_key
-        self.client.skill_blacklist = user.skill_blacklist or []
-        self.client.intent_blacklist = user.intent_blacklist or []
         self.client.allowed_types = user.allowed_types
         self.client.can_broadcast = user.can_broadcast
         self.client.can_propagate = user.can_propagate
