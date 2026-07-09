@@ -6,13 +6,12 @@ import os.path
 import random
 import threading
 import time
-from collections import deque
-from concurrent.futures import ThreadPoolExecutor
 from os import makedirs
 from os.path import exists, join
 from socket import gethostname
 from typing import Any, Dict, Optional, Tuple
 from typing import Deque, Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple
 
 import pybase64
 from hivemind_bus_client.message import HiveMessageType
@@ -57,8 +56,6 @@ from hivemind_websocket_protocol.health import (
 DEFAULT_TRUSTED_HEADERS = "x-forwarded-for,x-real-ip"
 DEFAULT_WEBSOCKET_PING_INTERVAL = 30.0
 DEFAULT_WEBSOCKET_PING_TIMEOUT = 20.0
-DEFAULT_WEBSOCKET_MESSAGE_WORKERS = 8
-DEFAULT_WEBSOCKET_MESSAGE_QUEUE = 64
 
 
 def _split_csv(value: Any) -> Tuple[str, ...]:
@@ -82,20 +79,6 @@ def _non_negative_float(value: Any, default: float, name: str) -> float:
         return default
     if parsed < 0:
         LOG.warning(f"Ignoring negative {name}: {value!r}")
-        return default
-    return parsed
-
-
-def _positive_int(value: Any, default: int, name: str) -> int:
-    if value is None:
-        return default
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        LOG.warning(f"Ignoring invalid {name}: {value!r}")
-        return default
-    if parsed <= 0:
-        LOG.warning(f"Ignoring non-positive {name}: {value!r}")
         return default
     return parsed
 
@@ -141,7 +124,6 @@ class HiveMindWebsocketProtocol(NetworkProtocol):
         loop = ioloop.IOLoop.current()
         HiveMindTornadoWebSocket.loop = loop
         HiveMindTornadoWebSocket.hm_protocol = self.hm_protocol
-        HiveMindTornadoWebSocket.configure_message_workers(self.config)
 
         if "trusted_proxy_cidrs" in self.config:
             proxy_cidrs = self.config["trusted_proxy_cidrs"]
@@ -273,47 +255,6 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
     _last_sync_error: Optional[Exception] = None
     _sync_debounce_s = 1.0
 
-    def initialize(self) -> None:
-        self._inbound_messages: Deque[Any] = deque()
-        self._inbound_lock = threading.Lock()
-        self._inbound_draining = False
-
-    @classmethod
-    def configure_message_workers(cls, config: Dict[str, Any]) -> None:
-        workers = _positive_int(
-            config.get("websocket_message_workers")
-            or os.getenv("HIVEMIND_WEBSOCKET_MESSAGE_WORKERS"),
-            DEFAULT_WEBSOCKET_MESSAGE_WORKERS,
-            "websocket_message_workers",
-        )
-        queue_size = _positive_int(
-            config.get("websocket_message_queue")
-            or os.getenv("HIVEMIND_WEBSOCKET_MESSAGE_QUEUE"),
-            DEFAULT_WEBSOCKET_MESSAGE_QUEUE,
-            "websocket_message_queue",
-        )
-        with cls._message_executor_lock:
-            cls._message_queue_size = queue_size
-            if cls._message_executor is None or cls._message_workers != workers:
-                old_executor = cls._message_executor
-                cls._message_workers = workers
-                cls._message_executor = ThreadPoolExecutor(
-                    max_workers=workers,
-                    thread_name_prefix="hivemind-ws-message",
-                )
-                if old_executor is not None:
-                    old_executor.shutdown(wait=False, cancel_futures=True)
-
-    @classmethod
-    def _executor(cls) -> ThreadPoolExecutor:
-        with cls._message_executor_lock:
-            if cls._message_executor is None:
-                cls._message_executor = ThreadPoolExecutor(
-                    max_workers=cls._message_workers,
-                    thread_name_prefix="hivemind-ws-message",
-                )
-            return cls._message_executor
-
     def _client_ip(self) -> Optional[str]:
         return resolve_client_ip(
             getattr(self.request, "remote_ip", None),
@@ -340,37 +281,7 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
         return name, key
 
     def on_message(self, message: str) -> None:
-        with self._inbound_lock:
-            if len(self._inbound_messages) >= self._message_queue_size:
-                LOG.warning(
-                    "closing websocket from "
-                    f"{self._current_peer_label()}: "
-                    "inbound message queue is full"
-                )
-                self.close(code=1013, reason="message queue full")
-                return
-            self._inbound_messages.append(message)
-            if self._inbound_draining:
-                return
-            self._inbound_draining = True
-        self._executor().submit(self._drain_inbound_messages)
-
-    def _drain_inbound_messages(self) -> None:
-        while True:
-            with self._inbound_lock:
-                if not self._inbound_messages:
-                    self._inbound_draining = False
-                    return
-                message = self._inbound_messages.popleft()
-            try:
-                self._handle_inbound_message(message)
-            except Exception:
-                LOG.exception(
-                    "failed to process websocket message from "
-                    f"{self._current_peer_label()}"
-                )
-                self.loop.add_callback(self.close)
-                return
+        self._handle_inbound_message(message)
 
     def _handle_inbound_message(self, message: str) -> None:
         message = self.client.decode(message)

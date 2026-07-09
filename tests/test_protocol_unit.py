@@ -215,42 +215,6 @@ def test_open_treats_closed_downstream_write_as_debug(monkeypatch):
     assert debugs
 
 
-def test_on_message_drains_inbound_frames_off_ioloop(monkeypatch):
-    submitted = []
-
-    class FakeExecutor:
-        def submit(self, callback):
-            submitted.append(callback)
-            return SimpleNamespace()
-
-    monkeypatch.setattr(
-        HiveMindTornadoWebSocket,
-        "_executor",
-        classmethod(lambda cls: FakeExecutor()),
-    )
-
-    handler = HiveMindTornadoWebSocket.__new__(HiveMindTornadoWebSocket)
-    handler.initialize()
-    handler.source_ip = None
-    handler.client = SimpleNamespace(peer="peer")
-    handler.close = lambda *args, **kwargs: None
-    handler.loop = SimpleNamespace(
-        add_callback=lambda callback, *args, **kwargs: callback(*args, **kwargs)
-    )
-    seen = []
-    handler._handle_inbound_message = seen.append
-
-    handler.on_message("one")
-    handler.on_message("two")
-
-    assert seen == []
-    assert len(submitted) == 1
-
-    submitted[0]()
-
-    assert seen == ["one", "two"]
-
-
 def test_open_uses_direct_api_key_lookup_without_sync():
     user = _auth_user()
 
