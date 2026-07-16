@@ -267,6 +267,9 @@ def test_open_syncs_once_after_api_key_miss():
 
 def test_open_debounces_sync_after_recent_api_key_miss():
     HiveMindTornadoWebSocket.db_sync.reset()
+    # widen the window so the assertion is about the debounce, not about how
+    # long two open() calls (RSA handshake included) happen to take on CI
+    HiveMindTornadoWebSocket.db_sync.debounce_s = 60.0
     user = _auth_user(client_id=3, name="synced-client")
     state = {"synced": False, "syncs": 0}
 
@@ -282,10 +285,13 @@ def test_open_debounces_sync_after_recent_api_key_miss():
     db = SimpleNamespace(sync=sync, get_client_by_api_key=lookup)
     seen_clients = []
     invalid_clients = []
-    _open_handler(db, key="fresh-key",
-                  seen_clients=seen_clients).open()
-    _open_handler(db, key="missing-key",
-                  invalid_clients=invalid_clients).open()
+    try:
+        _open_handler(db, key="fresh-key",
+                      seen_clients=seen_clients).open()
+        _open_handler(db, key="missing-key",
+                      invalid_clients=invalid_clients).open()
+    finally:
+        HiveMindTornadoWebSocket.db_sync.debounce_s = 1.0
 
     assert state["syncs"] == 1
     assert len(seen_clients) == 1
