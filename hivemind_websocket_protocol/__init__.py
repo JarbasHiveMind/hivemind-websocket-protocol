@@ -252,27 +252,24 @@ class ClientDatabaseSync:
     def __init__(self, debounce_s: float = 1.0):
         self.debounce_s = debounce_s
         self._lock = threading.Lock()
-        self._last_ts = 0.0
+        self._last_ts: Optional[float] = None
         self._last_error: Optional[Exception] = None
 
     def reset(self) -> None:
         with self._lock:
-            self._last_ts = 0.0
+            self._last_ts = None
             self._last_error = None
 
     def sync(self, db: Any) -> None:
-        sync = getattr(db, "sync", None)
-        if not callable(sync):
-            return
         with self._lock:
             now = time.monotonic()
-            if now - self._last_ts < self.debounce_s:
+            if self._last_ts is not None and now - self._last_ts < self.debounce_s:
                 if self._last_error is not None:
                     raise self._last_error
                 return
             self._last_ts = now
             try:
-                sync()
+                db.sync()
             except Exception as exc:
                 self._last_error = exc
                 raise
