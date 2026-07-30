@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.2a2](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.2.2a2) (2026-07-30)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.2.2a1...0.2.2a2)
+
+**Merged pull requests:**
+
+- docs: rewrite README in Simplified Technical English [\#39](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/39) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.2.2a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.2.2a1) (2026-07-04)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.2.1a1...0.2.2a1)
