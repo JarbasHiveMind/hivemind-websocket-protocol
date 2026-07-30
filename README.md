@@ -2,8 +2,8 @@
 
 WebSocket transport plugin for [hivemind-core](https://github.com/JarbasHiveMind/HiveMind-core).
 
-This is the **reference network protocol** for HiveMind. Satellites and clients connect to the hub
-over a persistent WebSocket connection (`ws://` or `wss://`). All HiveMessage frames are exchanged
+This is the reference network protocol for HiveMind. Clients connect to `hivemind-core`
+over a persistent WebSocket connection (`ws://` or `wss://`). All HiveMessage frames pass
 over this connection after an initial authentication handshake.
 
 ## Where it fits
@@ -100,11 +100,11 @@ export HIVEMIND_TRUSTED_CLIENT_IP_HEADERS="x-forwarded-for"
 
 | Key | Env var | Default | Description |
 |---|---|---|---|
-| `host` | — | `0.0.0.0` | Bind address. Falls back to `identity.default_master`. |
-| `port` | — | `5678` | Listen port. Falls back to `identity.default_port`. |
-| `ssl` | — | `false` | Enable TLS. |
-| `cert_dir` | — | `$XDG_DATA_HOME/hivemind` | Directory for TLS cert and key files. |
-| `cert_name` | — | `hivemind` | Base filename; produces `<name>.crt` and `<name>.key`. |
+| `host` | n/a | `0.0.0.0` | Bind address. Falls back to `identity.default_master`. |
+| `port` | n/a | `5678` | Listen port. Falls back to `identity.default_port`. |
+| `ssl` | n/a | `false` | Enable TLS. |
+| `cert_dir` | n/a | `$XDG_DATA_HOME/hivemind` | Directory for TLS cert and key files. |
+| `cert_name` | n/a | `hivemind` | Base filename. It produces `<name>.crt` and `<name>.key`. |
 | `trusted_proxy_cidrs` | `HIVEMIND_TRUSTED_PROXY_CIDRS` | _(none)_ | Comma-separated CIDRs of trusted proxy addresses. |
 | `trusted_client_ip_headers` | `HIVEMIND_TRUSTED_CLIENT_IP_HEADERS` | `x-forwarded-for,x-real-ip` | Ordered list of headers to inspect for real client IP. |
 
@@ -113,6 +113,18 @@ tuple. The feature is disabled unless at least one CIDR is configured.
 
 ## Docs
 
-- [docs/architecture.md](docs/architecture.md) — handler lifecycle, authorization flow, IP resolution
-- [docs/configuration.md](docs/configuration.md) — full configuration reference
-- [docs/operations.md](docs/operations.md) — TLS, reverse proxy, authoring a transport plugin
+- [docs/architecture.md](docs/architecture.md): handler lifecycle, authorization flow, IP resolution
+- [docs/configuration.md](docs/configuration.md): full configuration reference
+- [docs/operations.md](docs/operations.md): TLS, reverse proxy, authoring a transport plugin
+
+## Related projects
+
+- [hivemind-core](https://github.com/JarbasHiveMind/HiveMind-core): the server that loads this plugin
+- [hivemind-plugin-manager](https://github.com/JarbasHiveMind/hivemind-plugin-manager): plugin manager and abstract interfaces that define the `NetworkProtocol` base class
+- [hivemind-http-protocol](https://github.com/JarbasHiveMind/hivemind-http-protocol): REST/HTTP alternative transport
+- [hivemind-mqtt-protocol](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol): MQTT broker-mediated alternative transport
+- [hivemind-audio-binary-protocol](https://github.com/JarbasHiveMind/hivemind-audio-binary-protocol): binary audio streaming plugin, layered on top of a network protocol like this one
+
+## License
+
+Apache-2.0. See [LICENSE.md](LICENSE.md).

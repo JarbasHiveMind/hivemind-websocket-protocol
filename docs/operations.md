@@ -19,9 +19,9 @@ does not regenerate if the files are already present.
 
 ```bash
 # Example: copy certbot output
-cp /etc/letsencrypt/live/myhub.example.com/fullchain.pem \
+cp /etc/letsencrypt/live/myserver.example.com/fullchain.pem \
    ~/.local/share/hivemind/hivemind.crt
-cp /etc/letsencrypt/live/myhub.example.com/privkey.pem \
+cp /etc/letsencrypt/live/myserver.example.com/privkey.pem \
    ~/.local/share/hivemind/hivemind.key
 ```
 
@@ -38,10 +38,10 @@ map $http_upgrade $connection_upgrade {
 
 server {
     listen 443 ssl;
-    server_name myhub.example.com;
+    server_name myserver.example.com;
 
-    ssl_certificate     /etc/letsencrypt/live/myhub.example.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/myhub.example.com/privkey.pem;
+    ssl_certificate     /etc/letsencrypt/live/myserver.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/myserver.example.com/privkey.pem;
 
     location / {
         proxy_pass http://127.0.0.1:5678;
@@ -72,5 +72,8 @@ ufw allow from 192.168.0.0/16 to any port 5678
 
 See [architecture.md](architecture.md#authoring-a-transport-plugin) for the
 `NetworkProtocol` ABC and `pyproject.toml` entry-point registration pattern.
-The HTTP and MQTT transports in this same cluster are concrete examples of
-alternative transport implementations.
+The HTTP and MQTT transports are concrete examples of alternative transport
+implementations.
+
+---
+[← Development](development.md) · [Home](index.md)

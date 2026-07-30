@@ -34,3 +34,6 @@ hivemind-websocket-plugin = hivemind_websocket_protocol:HiveMindWebsocketProtoco
 
 `hivemind-core` discovers and instantiates it automatically via
 `hivemind-plugin-manager`.
+
+---
+[← Configuration](configuration.md) · [Home](index.md) · [Operations →](operations.md)

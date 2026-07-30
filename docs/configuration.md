@@ -12,7 +12,7 @@ environment variables.
 | `port` | `int` | `5678` | Listen port. Falls back to `identity.default_port`. |
 | `ssl` | `bool` | `false` | Enable TLS (`wss://`). |
 | `cert_dir` | `str` | `$XDG_DATA_HOME/hivemind` | Directory for TLS cert/key files. |
-| `cert_name` | `str` | `hivemind` | Base filename; produces `<name>.crt` and `<name>.key`. |
+| `cert_name` | `str` | `hivemind` | Base filename. It produces `<name>.crt` and `<name>.key`. |
 
 When `ssl=true` and the key file does not exist, a self-signed 2048-bit RSA
 certificate valid for 10 years is generated automatically.
@@ -21,7 +21,7 @@ certificate valid for 10 years is generated automatically.
 
 | Key | Env var | Default | Description |
 |---|---|---|---|
-| `trusted_proxy_cidrs` | `HIVEMIND_TRUSTED_PROXY_CIDRS` | _(none — feature disabled)_ | Comma-separated CIDRs of trusted proxy addresses. |
+| `trusted_proxy_cidrs` | `HIVEMIND_TRUSTED_PROXY_CIDRS` | _(none, feature disabled)_ | Comma-separated CIDRs of trusted proxy addresses. |
 | `trusted_client_ip_headers` | `HIVEMIND_TRUSTED_CLIENT_IP_HEADERS` | `x-forwarded-for,x-real-ip` | Ordered list of headers to inspect for the real client IP. |
 
 Both keys accept a `str`, `list`, or `tuple`. Env vars accept comma-separated
@@ -29,14 +29,14 @@ strings. The feature is **inactive** unless at least one CIDR is configured.
 
 When inactive, `remote_ip` from the Tornado request is used as-is.
 
-### Example — nginx on localhost
+### Example: nginx on localhost
 
 ```bash
 export HIVEMIND_TRUSTED_PROXY_CIDRS="127.0.0.1/32"
 export HIVEMIND_TRUSTED_CLIENT_IP_HEADERS="x-forwarded-for"
 ```
 
-### Example — private network proxies via config
+### Example: private network proxies via config
 
 ```json
 {
@@ -70,3 +70,6 @@ See [architecture.md](architecture.md#ip-resolution-flow) for the full algorithm
   }
 }
 ```
+
+---
+[← Architecture](architecture.md) · [Home](index.md) · [Development →](development.md)

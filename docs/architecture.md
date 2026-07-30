@@ -121,5 +121,8 @@ Register it under `hivemind.network.protocol` in `pyproject.toml`:
 "my-transport-plugin" = "my_package:MyProtocol"
 ```
 
-`NetworkProtocolFactory.create("my-transport-plugin")` will discover and
-instantiate it.
+`NetworkProtocolFactory.create("my-transport-plugin")` discovers and
+instantiates it.
+
+---
+[Home](index.md) · [Configuration →](configuration.md)
