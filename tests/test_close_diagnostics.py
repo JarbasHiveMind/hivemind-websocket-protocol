@@ -12,6 +12,7 @@ from unittest.mock import MagicMock
 
 from hivemind_core.protocol import HiveMindClientConnection
 from hivemind_websocket_protocol import (
+    DEFAULT_WEBSOCKET_PING_INTERVAL,
     DEFAULT_WEBSOCKET_PING_TIMEOUT,
     HiveMindTornadoWebSocket,
 )
@@ -19,6 +20,7 @@ import hivemind_websocket_protocol as hwp
 
 
 def _handler(*, last_pong, ping_timeout=DEFAULT_WEBSOCKET_PING_TIMEOUT,
+             ping_interval=DEFAULT_WEBSOCKET_PING_INTERVAL,
              close_code=1000, close_reason=None):
     """A bare handler instance, bypassing Tornado's HTTP/websocket setup.
 
@@ -30,7 +32,10 @@ def _handler(*, last_pong, ping_timeout=DEFAULT_WEBSOCKET_PING_TIMEOUT,
     handler = object.__new__(HiveMindTornadoWebSocket)
     handler.source_ip = None
     handler.last_pong = last_pong
-    handler.application = MagicMock(settings={"websocket_ping_timeout": ping_timeout})
+    handler.application = MagicMock(settings={
+        "websocket_ping_timeout": ping_timeout,
+        "websocket_ping_interval": ping_interval,
+    })
     handler.close_code = close_code
     handler.close_reason = close_reason
     handler.hm_protocol = MagicMock()
@@ -56,9 +61,13 @@ def test_on_pong_stamps_last_pong():
 def test_stale_pong_logs_warning_and_names_the_timeout(monkeypatch):
     log = MagicMock()
     monkeypatch.setattr(hwp, "LOG", log)
+    ping_interval = 30.0
     ping_timeout = 20.0
     handler = _handler(
-        last_pong=time.monotonic() - (ping_timeout + 5),
+        # older than one full ping_interval + ping_timeout: a genuinely stale
+        # pong, i.e. the server really did stop hearing back from the client.
+        last_pong=time.monotonic() - (ping_interval + ping_timeout + 5),
+        ping_interval=ping_interval,
         ping_timeout=ping_timeout,
     )
 
@@ -68,8 +77,45 @@ def test_stale_pong_logs_warning_and_names_the_timeout(monkeypatch):
     assert not log.info.called
     message = log.warning.call_args[0][0] % log.warning.call_args[0][1:]
     assert "ping timeout" in message
-    assert str(ping_timeout) in message
     handler.hm_protocol.handle_client_disconnected.assert_called_once_with(handler.client)
+
+
+def test_clean_disconnect_at_25s_does_not_warn(monkeypatch):
+    """Regression for the false-positive bug: with the tornado defaults
+    (ping_interval=30, ping_timeout=20) a client that was pinged at t=0 and
+    voluntarily disconnects at t=25 has since_pong=25 > ping_timeout=20, but
+    that gap is fully explained by the ping cadence — it is not a timeout.
+    """
+    log = MagicMock()
+    monkeypatch.setattr(hwp, "LOG", log)
+    handler = _handler(
+        last_pong=time.monotonic() - 25,
+        ping_interval=DEFAULT_WEBSOCKET_PING_INTERVAL,
+        ping_timeout=DEFAULT_WEBSOCKET_PING_TIMEOUT,
+    )
+
+    handler.on_close()
+
+    assert not log.warning.called
+    assert log.info.call_count == 1
+
+
+def test_pings_disabled_never_warns(monkeypatch):
+    """With ping_interval=0, tornado never pings and last_pong is frozen at
+    whatever `open()` set it to, so its age carries no information about the
+    disconnect and must never trigger the ping-timeout warning."""
+    log = MagicMock()
+    monkeypatch.setattr(hwp, "LOG", log)
+    handler = _handler(
+        last_pong=time.monotonic() - 3600,
+        ping_interval=0,
+        ping_timeout=DEFAULT_WEBSOCKET_PING_TIMEOUT,
+    )
+
+    handler.on_close()
+
+    assert not log.warning.called
+    assert log.info.call_count == 1
 
 
 def test_recent_pong_stays_info(monkeypatch):

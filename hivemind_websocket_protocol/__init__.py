@@ -357,19 +357,29 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
                 f"(no client was ever attached)"
             )
             return
+        ping_interval = self.settings.get(
+            "websocket_ping_interval", DEFAULT_WEBSOCKET_PING_INTERVAL
+        )
         ping_timeout = self.settings.get(
             "websocket_ping_timeout", DEFAULT_WEBSOCKET_PING_TIMEOUT
         )
         since_pong = (
             time.monotonic() - self.last_pong if self.last_pong is not None else None
         )
-        if since_pong is not None and since_pong > ping_timeout:
+        # A pong can legitimately be as old as one full ping interval plus the
+        # timeout tornado allows for the reply, so only flag pongs older than
+        # that as a likely server-initiated ping timeout. When pings are
+        # disabled (interval == 0) last_pong never refreshes after `open()`,
+        # so its age says nothing about why the client disconnected.
+        stale_pong_threshold = ping_interval + ping_timeout
+        if ping_interval > 0 and since_pong is not None and since_pong > stale_pong_threshold:
             LOG.warning(
                 "disconnecting client: %s (close_code=%s, close_reason=%s, "
-                "seconds_since_last_pong=%.1f, exceeds websocket_ping_timeout=%s "
-                "- likely a server-initiated ping timeout, not a client disconnect)",
+                "seconds_since_last_pong=%.1f, exceeds websocket_ping_interval+"
+                "websocket_ping_timeout=%s - likely a server-initiated ping "
+                "timeout, not a client disconnect)",
                 self._peer_label(client.peer), self.close_code, self.close_reason,
-                since_pong, ping_timeout,
+                since_pong, stale_pong_threshold,
             )
         else:
             LOG.info(
