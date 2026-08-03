@@ -253,7 +253,7 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
         ):
             LOG.info(f"Received {peer} sent base64 audio for STT")
         else:
-            LOG.info(f"Received {peer} message: {message}")
+            LOG.info("Received %s message: %s", peer, message.msg_type)
         self.hm_protocol.handle_message(message, self.client)
 
     def _peer_label(self, peer: str) -> str:
