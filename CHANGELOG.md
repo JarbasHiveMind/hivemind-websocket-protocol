@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.3a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.2.3a1) (2026-08-03)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.2.2a2...0.2.3a1)
+
+**Merged pull requests:**
+
+- fix: keep websocket writes on the IOLoop [\#41](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/41) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.2.2a2](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.2.2a2) (2026-07-30)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.2.2a1...0.2.2a2)
