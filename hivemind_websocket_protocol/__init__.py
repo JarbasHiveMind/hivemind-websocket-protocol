@@ -4,6 +4,7 @@ import math
 import os
 import os.path
 import random
+import time
 from os import makedirs
 from os.path import exists, join
 from socket import gethostname
@@ -218,6 +219,7 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
     """
     hm_protocol = None
     source_ip: Optional[str] = None
+    last_pong: Optional[float] = None
 
     def _client_ip(self) -> Optional[str]:
         return resolve_client_ip(
@@ -259,10 +261,14 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
     def _peer_label(self, peer: str) -> str:
         return f"{peer} ({self.source_ip})" if self.source_ip else peer
 
+    def on_pong(self, data: bytes) -> None:
+        self.last_pong = time.monotonic()
+
     def open(self) -> None:
         """
         Handle a new client connection and perform authorization.
         """
+        self.last_pong = time.monotonic()
         self.source_ip = self._client_ip()
         auth = self.get_query_argument("authorization", None)
         try:
@@ -342,7 +348,25 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
                 f"(no client was ever attached)"
             )
             return
-        LOG.info(f"disconnecting client: {self._peer_label(client.peer)}")
+        ping_timeout = self.settings.get(
+            "websocket_ping_timeout", DEFAULT_WEBSOCKET_PING_TIMEOUT
+        )
+        since_pong = (
+            time.monotonic() - self.last_pong if self.last_pong is not None else None
+        )
+        if since_pong is not None and since_pong > ping_timeout:
+            LOG.warning(
+                "disconnecting client: %s (close_code=%s, close_reason=%s, "
+                "seconds_since_last_pong=%.1f, exceeds websocket_ping_timeout=%s "
+                "- likely a server-initiated ping timeout, not a client disconnect)",
+                self._peer_label(client.peer), self.close_code, self.close_reason,
+                since_pong, ping_timeout,
+            )
+        else:
+            LOG.info(
+                "disconnecting client: %s (close_code=%s, close_reason=%s)",
+                self._peer_label(client.peer), self.close_code, self.close_reason,
+            )
         self.hm_protocol.handle_client_disconnected(client)
 
     def check_origin(self, origin) -> bool:
