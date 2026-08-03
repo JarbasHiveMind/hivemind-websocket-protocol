@@ -233,6 +233,28 @@ def test_recognizer_loop_b64_audio_branch(tornado_server):
         c.close()
 
 
+# --- privacy: INFO logs must not leak message payloads --------------------
+
+def test_info_log_does_not_leak_utterance_payload(tornado_server, caplog):
+    """recognizer_loop:utterance carries the user's transcribed speech.
+
+    INFO logging is enabled by default, so on_message must never format the
+    full HiveMessage (and therefore the utterance text) into an INFO record.
+    """
+    sentinel = "the quick brown fox sentinel utterance"
+    c = _client(tornado_server)
+    try:
+        _wait_clients(tornado_server, 1)
+        with caplog.at_level("INFO"):
+            c.emit(Message("recognizer_loop:utterance", {"utterances": [sentinel]}))
+            time.sleep(0.3)
+        leaked = [r for r in caplog.records
+                  if r.levelname == "INFO" and sentinel in r.getMessage()]
+        assert not leaked, f"utterance payload leaked into INFO logs: {leaked}"
+    finally:
+        c.close()
+
+
 def test_multiple_sequential_messages(tornado_server):
     """Five BUS messages in a row all reach the listener."""
     c = _client(tornado_server)
