@@ -31,9 +31,15 @@ from hivescope.scenarios import single_satellite
 def hive():
     """A started single-satellite topology; teardown is automatic.
 
-    Yields `(master, satellite)` for the standard M0/S0 pair.
+    Yields `(master, satellite)` for the standard M0/S0 pair. The satellite
+    is granted a non-empty `allowed_types` whitelist — `MessageTypeACLPolicy`
+    denies binary payloads outright for a client with an empty one.
     """
-    builder = single_satellite()
+    builder = single_satellite(allowed_types=[
+        "recognizer_loop:utterance",
+        "recognizer_loop:b64_audio",
+        "speak",
+    ])
     try:
         builder.start_all()
         yield builder.get_master("M0"), builder.get_satellite("S0")
