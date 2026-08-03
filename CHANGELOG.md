@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.4a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.2.4a1) (2026-08-03)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.2.3a1...0.2.4a1)
+
+**Merged pull requests:**
+
+- fix: stop logging message payloads at INFO [\#42](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/42) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.2.3a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.2.3a1) (2026-08-03)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.2.2a2...0.2.3a1)
