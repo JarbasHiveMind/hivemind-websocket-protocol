@@ -9,35 +9,24 @@ from os.path import exists, join
 from socket import gethostname
 from typing import Dict, Any, Optional, Tuple
 
-import pybase64
 from OpenSSL import crypto
 from hivemind_plugin_manager.protocols import NetworkProtocol
-from ovos_bus_client.session import Session
 from ovos_utils.log import LOG
 from ovos_utils.xdg_utils import xdg_data_home
-from poorman_handshake import PasswordHandShake
 from tornado import ioloop
 from tornado import web
 from tornado.platform.asyncio import AnyThreadEventLoopPolicy
 from tornado.websocket import WebSocketHandler
 
 from hivemind_bus_client.message import HiveMessageType
-try:
-    from hivemind_core.config import runtime_password_min_bits
-except ImportError:  # released hivemind-core without the helper
-    import os
-
-    def runtime_password_min_bits():
-        return 0.0 if os.environ.get("HIVEMIND_DISABLE_PASSWORD_STRENGTH_CHECK", "").strip().lower() in ("1", "true", "yes", "on") else 40.0
-
-from hivemind_core.protocol import (
-    HiveMindListenerProtocol,
-    HiveMindClientConnection,
-    HiveMindNodeType
-)
+from hivemind_core.protocol import HiveMindListenerProtocol
 from hivemind_plugin_manager.protocols import ClientCallbacks
-from hivemind_plugin_manager.database import Client
 
+from hivemind_websocket_protocol._admission import (
+    ClientRejected,
+    authorize_client,
+    decode_auth,
+)
 from hivemind_websocket_protocol._client_ip import (
     parse_networks,
     resolve_client_ip,
@@ -218,6 +207,7 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
     """
     hm_protocol = None
     source_ip: Optional[str] = None
+    decode_auth = staticmethod(decode_auth)
 
     def _client_ip(self) -> Optional[str]:
         return resolve_client_ip(
@@ -226,23 +216,6 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
             self.settings.get("trusted_networks", ()),
             self.settings.get("trusted_headers", ()),
         )
-
-    @staticmethod
-    def decode_auth(auth: str) -> Tuple[str, str]:
-        """
-        Decode the base64 encoded authorization string.
-
-        Args:
-            auth (str): The base64 encoded authorization string.
-
-        Returns:
-            Tuple[str, str]: The decoded username and key.
-        """
-        decoded = pybase64.b64decode(auth or "", validate=True).decode("utf-8")
-        name, key = decoded.split(":", 1)
-        if not name or not key:
-            raise ValueError("empty credentials")
-        return name, key
 
     def on_message(self, message: str) -> None:
         message = self.client.decode(message)
@@ -294,49 +267,11 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
         def do_disconnect():
             self.loop.add_callback(self.close)
 
-        self.client = HiveMindClientConnection(
-            key=key,
-            disconnect=do_disconnect,
-            send_msg=do_send,
-            sess=Session(session_id="default"),  # will be re-assigned once client sends handshake
-            name=useragent,
-            hm_protocol=self.hm_protocol
-        )
-        self.hm_protocol.db.sync()
-        user: Client = self.hm_protocol.db.get_client_by_api_key(key)
-
-        if not user:
-            LOG.error("Client provided an invalid api key")
-            self.hm_protocol.handle_invalid_key_connected(self.client)
-            self.close()
-            return
-
-        self.client.name = f"{useragent}::{user.client_id}::{user.name}"
-        self.client.crypto_key = user.crypto_key
-        self.client.skill_blacklist = user.skill_blacklist or []
-        self.client.intent_blacklist = user.intent_blacklist or []
-        self.client.allowed_types = user.allowed_types
-        self.client.can_broadcast = user.can_broadcast
-        self.client.can_propagate = user.can_propagate
-        self.client.can_escalate = user.can_escalate
-        self.client.is_admin = user.is_admin
-        if user.password:
-            # pre-shared password to derive aes_key
-            self.client.pswd_handshake = PasswordHandShake(user.password, min_bits=runtime_password_min_bits())
-
-        self.client.node_type = HiveMindNodeType.NODE  # TODO . placeholder
-
-        if (
-                not self.client.crypto_key
-                and not self.hm_protocol.handshake_enabled
-                and self.hm_protocol.require_crypto
-        ):
-            LOG.error(
-                "No pre-shared crypto key for client and handshake disabled, "
-                "but configured to require crypto!"
-            )
-            # clients requiring handshake support might fail here
-            self.hm_protocol.handle_invalid_protocol_version(self.client)
+        try:
+            self.client = authorize_client(useragent, key, self.hm_protocol,
+                                           send_msg=do_send, disconnect=do_disconnect)
+        except ClientRejected as e:
+            self.client = e.client
             self.close()
             return
 

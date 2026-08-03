@@ -5,9 +5,11 @@
 ```
 hivemind_plugin_manager.protocols.NetworkProtocol  (abstract)
         │
-        └─ hivemind_websocket_protocol.HiveMindWebsocketProtocol
-                │
-                └─ HiveMindTornadoWebSocket  (per-connection handler)
+        ├─ hivemind_websocket_protocol.HiveMindWebsocketProtocol   (default)
+        │       │
+        │       └─ HiveMindTornadoWebSocket  (per-connection handler)
+        │
+        └─ ...webrockets_backend.HiveMindWebrocketsProtocol        (optional extra)
 ```
 
 `HiveMindWebsocketProtocol.run()` is the blocking server entry point called by
@@ -17,16 +19,22 @@ and starts the `IOLoop`.
 `HiveMindTornadoWebSocket` extends `tornado.websocket.WebSocketHandler` and
 manages one WebSocket connection per instance.
 
+`HiveMindWebrocketsProtocol` serves the same wire protocol on a webrockets
+server instead. Both backends share `_admission.py`, so the rules below apply
+to either one. See [the README](../README.md) for what the webrockets backend
+gives up.
+
 ## Handler lifecycle
 
 ### `open()`
 
 1. Resolve the real client IP via `_client_ip()` (see [IP resolution](#ip-resolution-flow)).
 2. Read the `?authorization=` query parameter from the URL.
-3. Decode it with `decode_auth()` — Base64, format `name:key`. Reject with
+3. Decode it with `decode_auth()` (`_admission.py`) — Base64, format `name:key`. Reject with
    close code `1008` if decoding fails or credentials are empty.
 4. Look up the API key in `hm_protocol.db`. Close if not found.
-5. Populate `HiveMindClientConnection` with permissions from the database record
+5. Populate `HiveMindClientConnection` with permissions (steps 4 to 6 are
+   `authorize_client()` in `_admission.py`, shared with the webrockets backend) from the database record
    (`allowed_types`, `can_broadcast`, `can_escalate`, `can_propagate`, `is_admin`,
    `crypto_key`, `pswd_handshake` if a password is set).
 6. Check crypto requirements: if `require_crypto` is enabled and no pre-shared key
@@ -51,6 +59,8 @@ Clients connect with a URL query parameter:
 ```
 ws://host:port/?authorization=<base64(name:key)>
 ```
+
+Clients may also omit the path entirely; both backends serve the root.
 
 `decode_auth()` decodes the Base64 value and splits on the first `:`. Both
 `name` and `key` must be non-empty; otherwise the connection is rejected with

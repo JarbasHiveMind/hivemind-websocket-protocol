@@ -17,6 +17,13 @@ environment variables.
 When `ssl=true` and the key file does not exist, a self-signed 2048-bit RSA
 certificate valid for 10 years is generated automatically.
 
+## The webrockets backend
+
+The optional `hivemind-webrockets-plugin` reads its config from its own block of
+the same file, and accepts `host` and `port` only. It cannot serve TLS, and the
+trusted-proxy keys below have no effect on it because webrockets does not expose
+the peer address. See [the README](../README.md#optional-webrockets-backend).
+
 ## Trusted-proxy IP resolution
 
 | Key | Env var | Default | Description |

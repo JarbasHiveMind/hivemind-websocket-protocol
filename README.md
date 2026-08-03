@@ -96,6 +96,38 @@ export HIVEMIND_TRUSTED_PROXY_CIDRS="127.0.0.1/32"
 export HIVEMIND_TRUSTED_CLIENT_IP_HEADERS="x-forwarded-for"
 ```
 
+## Optional webrockets backend
+
+The same wire protocol is also available on a [webrockets](https://pypi.org/project/webrockets/)
+server, a Rust websocket implementation. Tornado remains the default; webrockets is opt-in.
+
+```bash
+pip install hivemind-websocket-protocol[webrockets]
+```
+
+```json
+{
+  "network_protocol": {
+    "module": "hivemind-webrockets-plugin",
+    "hivemind-webrockets-plugin": {
+      "host": "0.0.0.0",
+      "port": 5678
+    }
+  }
+}
+```
+
+Clients do not change. Authentication is still the Base64 `authorization` query argument,
+and the frames on the wire are the same.
+
+Two limits apply to this backend:
+
+- **No client IP.** webrockets does not expose the peer address, so log lines carry the
+  client name only, and the trusted-proxy settings have no effect. The address is
+  diagnostic information; nothing in HiveMind decides anything with it.
+- **No TLS.** webrockets serves plain websockets. Put a reverse proxy in front of it to
+  offer `wss://`. Use the Tornado backend if you want the listener itself to serve TLS.
+
 ## Configuration reference
 
 | Key | Env var | Default | Description |

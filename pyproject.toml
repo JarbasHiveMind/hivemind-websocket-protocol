@@ -26,6 +26,11 @@ dependencies = [
 # import the package standalone in CI. hivemind-core is AGPL; do not
 # promote it to a runtime dep.
 [project.optional-dependencies]
+# Alternative transport for the same wire protocol. Tornado stays the
+# default; install this only if you opt into the webrockets backend.
+webrockets = [
+    "webrockets>=0.2.1,<1.0.0",
+]
 test = [
     "pytest",
     "hivemind-core",
@@ -33,6 +38,7 @@ test = [
     "ovos-bus-client",
     "ovos-utils",
     "hivescope",
+    "webrockets>=0.2.1,<1.0.0",
 ]
 
 [project.urls]
@@ -40,6 +46,7 @@ Homepage = "https://github.com/JarbasHiveMind/hivemind-websocket-protocol"
 
 [project.entry-points."hivemind.network.protocol"]
 "hivemind-websocket-plugin" = "hivemind_websocket_protocol:HiveMindWebsocketProtocol"
+"hivemind-webrockets-plugin" = "hivemind_websocket_protocol.webrockets_backend:HiveMindWebrocketsProtocol"
 
 [tool.setuptools.dynamic]
 version = { attr = "hivemind_websocket_protocol.version.__version__" }
