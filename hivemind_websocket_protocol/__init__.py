@@ -357,35 +357,23 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
                 f"(no client was ever attached)"
             )
             return
-        ping_interval = self.settings.get(
-            "websocket_ping_interval", DEFAULT_WEBSOCKET_PING_INTERVAL
-        )
-        ping_timeout = self.settings.get(
-            "websocket_ping_timeout", DEFAULT_WEBSOCKET_PING_TIMEOUT
-        )
+        # The age of the last pong cannot tell a ping timeout apart from a
+        # client that simply went away: tornado pings at T, waits ping_timeout
+        # and then closes, so a real ping timeout shows an age of
+        # ping_interval + ping_timeout - round_trip_time, which overlaps the
+        # ages seen on ordinary disconnects. close_reason does not help either,
+        # since tornado fills it in from the close frame the peer echoes back,
+        # and a peer that timed out echoes nothing. Report the numbers and let
+        # the operator read them; a guess here would only mislead.
         since_pong = (
             time.monotonic() - self.last_pong if self.last_pong is not None else None
         )
-        # A pong can legitimately be as old as one full ping interval plus the
-        # timeout tornado allows for the reply, so only flag pongs older than
-        # that as a likely server-initiated ping timeout. When pings are
-        # disabled (interval == 0) last_pong never refreshes after `open()`,
-        # so its age says nothing about why the client disconnected.
-        stale_pong_threshold = ping_interval + ping_timeout
-        if ping_interval > 0 and since_pong is not None and since_pong > stale_pong_threshold:
-            LOG.warning(
-                "disconnecting client: %s (close_code=%s, close_reason=%s, "
-                "seconds_since_last_pong=%.1f, exceeds websocket_ping_interval+"
-                "websocket_ping_timeout=%s - likely a server-initiated ping "
-                "timeout, not a client disconnect)",
-                self._peer_label(client.peer), self.close_code, self.close_reason,
-                since_pong, stale_pong_threshold,
-            )
-        else:
-            LOG.info(
-                "disconnecting client: %s (close_code=%s, close_reason=%s)",
-                self._peer_label(client.peer), self.close_code, self.close_reason,
-            )
+        LOG.info(
+            "disconnecting client: %s (close_code=%s, close_reason=%s, "
+            "seconds_since_last_pong=%s)",
+            self._peer_label(client.peer), self.close_code, self.close_reason,
+            f"{since_pong:.1f}" if since_pong is not None else "unknown",
+        )
         self.hm_protocol.handle_client_disconnected(client)
 
     def check_origin(self, origin) -> bool:
