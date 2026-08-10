@@ -23,7 +23,8 @@ without any explicit config when none is provided.
 `network_protocol` has no `module` selector, unlike `agent_protocol`, `binary_protocol`
 and `database`. Every key of the block is read as a plugin entry-point name and started,
 so several transports run at once. A literal `"module"` key is looked up as a plugin
-named `module`, which does not exist, and the load fails.
+named `module`, which does not exist. That entry fails to load and is logged; the
+server still starts as long as another transport loads.
 
 ## Install
 

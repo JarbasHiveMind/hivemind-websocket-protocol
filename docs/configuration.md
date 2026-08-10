@@ -19,7 +19,8 @@ certificate valid for 10 years is generated automatically.
 
 There is no `module` key in `network_protocol`. `hivemind-core` reads every key of that
 block as a plugin entry-point name and starts each one, so a `"module"` key is looked up
-as a plugin named `module` and the load fails. `agent_protocol`, `binary_protocol` and
+as a plugin named `module`; that entry fails to load and is logged, and the server
+still starts as long as another transport loads. `agent_protocol`, `binary_protocol` and
 `database` do use a `module` selector; this block does not.
 
 ## Keepalive
