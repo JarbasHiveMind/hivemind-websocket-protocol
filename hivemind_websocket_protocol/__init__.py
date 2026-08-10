@@ -413,7 +413,12 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
                 return
             LOG.error("Client provided an invalid api key")
             self.hm_protocol.handle_invalid_key_connected(self.client)
-            self.close()
+            # Say *why*, with the same code a malformed authorization header
+            # gets above. A bare close is indistinguishable from a network
+            # drop, so a satellite treats a refused key as a transient fault
+            # and reconnects forever, printing raw close frames and never
+            # telling its operator the credentials are wrong.
+            self.close(code=1008, reason="invalid api key")
             return
 
         self.client.name = f"{useragent}::{user.client_id}::{user.name}"
@@ -440,7 +445,9 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
             )
             # clients requiring handshake support might fail here
             self.hm_protocol.handle_invalid_protocol_version(self.client)
-            self.close()
+            # Permanent for the same reason a bad key is: neither the server
+            # config nor the client's capabilities change between attempts.
+            self.close(code=1008, reason="crypto required, no usable key")
             return
 
         self.hm_protocol.handle_new_client(self.client)

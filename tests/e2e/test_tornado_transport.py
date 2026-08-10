@@ -114,6 +114,33 @@ def test_bad_api_key_is_rejected(tornado_server):
     assert not tornado_server.listener.clients
 
 
+def test_a_refused_api_key_closes_with_1008_and_says_why(tornado_server):
+    """A wrong key must be distinguishable from a network drop.
+
+    A bare close looks exactly like the connection dropping, so a satellite
+    treats a permanently invalid key as a transient fault and reconnects
+    forever. The status code is what lets the client stop and tell its
+    operator the credentials are wrong.
+    """
+    import pybase64
+    auth = pybase64.b64encode(b"bad-key-client:nope-not-a-real-key").decode("ascii")
+    sock = ws_client.create_connection(
+        f"{tornado_server.url}/?authorization={auth}", timeout=3,
+    )
+    sock.settimeout(3)
+    try:
+        frame = sock.recv_frame()
+        while frame.opcode != ws_client.ABNF.OPCODE_CLOSE:
+            frame = sock.recv_frame()
+    finally:
+        sock.close()
+
+    code = 256 * frame.data[0] + frame.data[1]
+    assert code == 1008, f"a refused key must close with 1008, got {code}"
+    assert b"invalid api key" in frame.data[2:], \
+        "the close reason must name the cause, not just the code"
+
+
 def test_malformed_authorization_query_rejected(tornado_server):
     """Garbage in ?authorization= must close with 1008, not crash."""
     sock = ws_client.create_connection(
