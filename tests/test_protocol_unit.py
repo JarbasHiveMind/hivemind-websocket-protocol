@@ -134,6 +134,11 @@ def _open_handler(db, key="api-key", seen_clients=None,
     hm_protocol = SimpleNamespace(
         db=db,
         identity=SimpleNamespace(private_key=None),
+        # HiveMindClientConnection builds its per-connection HandShake from
+        # the protocol's cached RSA identity key rather than re-importing the
+        # PEM per connection. None is the right stand-in: these tests never
+        # run a handshake, and a real key costs a 2048-bit import each time.
+        identity_rsa_key=None,
         handshake_enabled=True,
         require_crypto=False,
         handle_new_client=seen_clients.append,

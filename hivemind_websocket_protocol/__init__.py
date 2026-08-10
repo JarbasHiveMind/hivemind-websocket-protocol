@@ -10,8 +10,6 @@ from os import makedirs
 from os.path import exists, join
 from socket import gethostname
 from typing import Any, Dict, Optional, Tuple
-from typing import Deque, Dict, Any, Optional, Tuple
-from typing import Dict, Any, Optional, Tuple
 
 import pybase64
 from hivemind_bus_client.message import HiveMessageType
@@ -287,10 +285,6 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
     hm_protocol = None
     source_ip: Optional[str] = None
     last_pong: Optional[float] = None
-    _message_executor: Optional[ThreadPoolExecutor] = None
-    _message_workers = DEFAULT_WEBSOCKET_MESSAGE_WORKERS
-    _message_queue_size = DEFAULT_WEBSOCKET_MESSAGE_QUEUE
-    _message_executor_lock = threading.Lock()
     _sync_lock = threading.Lock()
     _last_sync_ts = 0.0
     _last_sync_error: Optional[Exception] = None
