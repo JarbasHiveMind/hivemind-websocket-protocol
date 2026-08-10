@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.6a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.2.6a1) (2026-08-10)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.2.5a3...0.2.6a1)
+
+**Merged pull requests:**
+
+- fix: disconnect ping-timeout warning false-positives on ~33% of clean disconnects [\#48](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/48) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.2.5a3](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.2.5a3) (2026-08-10)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.2.5a1...0.2.5a3)
