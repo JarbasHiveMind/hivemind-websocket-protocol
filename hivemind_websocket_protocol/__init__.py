@@ -18,7 +18,7 @@ from ovos_bus_client.session import Session
 from ovos_utils.log import LOG
 from ovos_utils.xdg_utils import xdg_data_home
 from poorman_handshake import PasswordHandShake
-from tornado import ioloop, web
+from tornado import ioloop
 from tornado.platform.asyncio import AnyThreadEventLoopPolicy
 from tornado.websocket import WebSocketHandler
 
@@ -42,7 +42,7 @@ from hivemind_websocket_protocol._client_ip import (
     parse_networks,
     resolve_client_ip,
 )
-from hivemind_websocket_protocol._health import (
+from hivemind_websocket_protocol.health import (
     LOCAL_HEALTH_PATH,
     HiveMindWebApplication,
     LocalHealthHandler,
