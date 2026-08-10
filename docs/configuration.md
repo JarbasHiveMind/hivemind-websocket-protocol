@@ -17,6 +17,22 @@ environment variables.
 When `ssl=true` and the key file does not exist, a self-signed 2048-bit RSA
 certificate valid for 10 years is generated automatically.
 
+There is no `module` key in `network_protocol`. `hivemind-core` reads every key of that
+block as a plugin entry-point name and starts each one, so a `"module"` key is looked up
+as a plugin named `module` and the load fails. `agent_protocol`, `binary_protocol` and
+`database` do use a `module` selector; this block does not.
+
+## Keepalive
+
+| Key | Env var | Default | Description |
+|---|---|---|---|
+| `websocket_ping_interval` | `HIVEMIND_WEBSOCKET_PING_INTERVAL` | `30.0` | Seconds between Tornado WebSocket keepalive pings. `0` disables them. |
+| `websocket_ping_timeout` | `HIVEMIND_WEBSOCKET_PING_TIMEOUT` | `20.0` | Seconds to wait for a pong before Tornado closes the connection. |
+
+Both accept a number or a numeric string. A negative, non-finite or unparsable value is
+ignored with a warning and the default is used. These pings are Tornado's WebSocket-level
+keepalive; they are unrelated to the HiveMind `PING` message.
+
 ## Trusted-proxy IP resolution
 
 | Key | Env var | Default | Description |
@@ -41,7 +57,6 @@ export HIVEMIND_TRUSTED_CLIENT_IP_HEADERS="x-forwarded-for"
 ```json
 {
   "network_protocol": {
-    "module": "hivemind-websocket-plugin",
     "hivemind-websocket-plugin": {
       "trusted_proxy_cidrs": ["10.0.0.0/8", "192.168.0.0/16"],
       "trusted_client_ip_headers": ["x-forwarded-for", "x-real-ip"]
@@ -57,7 +72,6 @@ See [architecture.md](architecture.md#ip-resolution-flow) for the full algorithm
 ```json
 {
   "network_protocol": {
-    "module": "hivemind-websocket-plugin",
     "hivemind-websocket-plugin": {
       "host": "0.0.0.0",
       "port": 5678,
@@ -65,7 +79,9 @@ See [architecture.md](architecture.md#ip-resolution-flow) for the full algorithm
       "cert_dir": "/etc/hivemind/ssl",
       "cert_name": "hivemind",
       "trusted_proxy_cidrs": ["127.0.0.1/32"],
-      "trusted_client_ip_headers": ["x-forwarded-for"]
+      "trusted_client_ip_headers": ["x-forwarded-for"],
+      "websocket_ping_interval": 30.0,
+      "websocket_ping_timeout": 20.0
     }
   }
 }

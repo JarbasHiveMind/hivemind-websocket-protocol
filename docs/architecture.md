@@ -25,7 +25,13 @@ manages one WebSocket connection per instance.
 2. Read the `?authorization=` query parameter from the URL.
 3. Decode it with `decode_auth()` — Base64, format `name:key`. Reject with
    close code `1008` if decoding fails or credentials are empty.
-4. Look up the API key in `hm_protocol.db`. Close if not found.
+4. Look up the API key in `hm_protocol.db`. On a miss, call `db.sync()` once and look the
+   key up again, so a key added while the server was running is picked up. The sync is
+   debounced by `ClientDatabaseSync` (1 second, shared by every connection), so a burst
+   of unknown keys is one sync, and a sync that failed is not retried inside the window.
+   If the key is still missing: close with `1011` and reason
+   `client database unavailable` when the sync failed, otherwise report an invalid key
+   and close normally.
 5. Populate `HiveMindClientConnection` with permissions from the database record
    (`allowed_types`, `can_broadcast`, `can_escalate`, `can_propagate`, `is_admin`,
    `crypto_key`, `pswd_handshake` if a password is set).
