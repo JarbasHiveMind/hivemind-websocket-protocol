@@ -17,8 +17,14 @@ hivemind-core
 
 The plugin registers under the `hivemind.network.protocol` entry-point group as
 `hivemind-websocket-plugin`. `hivemind-core` loads it automatically when `server.json`
-sets `network_protocol.module` to this name. It is the default transport and is loaded
+holds this name as a key of `network_protocol`. It is the default transport and is loaded
 without any explicit config when none is provided.
+
+`network_protocol` has no `module` selector, unlike `agent_protocol`, `binary_protocol`
+and `database`. Every key of the block is read as a plugin entry-point name and started,
+so several transports run at once. A literal `"module"` key is looked up as a plugin
+named `module`, which does not exist. That entry fails to load and is logged; the
+server still starts as long as another transport loads.
 
 ## Install
 
@@ -34,7 +40,6 @@ customize it, add the following to `~/.config/hivemind-core/server.json`:
 ```json
 {
   "network_protocol": {
-    "module": "hivemind-websocket-plugin",
     "hivemind-websocket-plugin": {
       "host": "0.0.0.0",
       "port": 5678
@@ -56,7 +61,6 @@ Clients connect to `ws://<host>:5678/?authorization=<base64(name:key)>`.
 ```json
 {
   "network_protocol": {
-    "module": "hivemind-websocket-plugin",
     "hivemind-websocket-plugin": {
       "host": "0.0.0.0",
       "port": 5678,
@@ -80,7 +84,6 @@ so the plugin reads the real client IP from the forwarded header:
 ```json
 {
   "network_protocol": {
-    "module": "hivemind-websocket-plugin",
     "hivemind-websocket-plugin": {
       "trusted_proxy_cidrs": ["127.0.0.1/32"],
       "trusted_client_ip_headers": ["x-forwarded-for"]
@@ -107,6 +110,8 @@ export HIVEMIND_TRUSTED_CLIENT_IP_HEADERS="x-forwarded-for"
 | `cert_name` | n/a | `hivemind` | Base filename. It produces `<name>.crt` and `<name>.key`. |
 | `trusted_proxy_cidrs` | `HIVEMIND_TRUSTED_PROXY_CIDRS` | _(none)_ | Comma-separated CIDRs of trusted proxy addresses. |
 | `trusted_client_ip_headers` | `HIVEMIND_TRUSTED_CLIENT_IP_HEADERS` | `x-forwarded-for,x-real-ip` | Ordered list of headers to inspect for real client IP. |
+| `websocket_ping_interval` | `HIVEMIND_WEBSOCKET_PING_INTERVAL` | `30.0` | Seconds between Tornado WebSocket keepalive pings. `0` disables them. |
+| `websocket_ping_timeout` | `HIVEMIND_WEBSOCKET_PING_TIMEOUT` | `20.0` | Seconds to wait for a pong before the connection is closed. |
 
 Both `trusted_proxy_cidrs` and `trusted_client_ip_headers` accept a string, list, or
 tuple. The feature is disabled unless at least one CIDR is configured.

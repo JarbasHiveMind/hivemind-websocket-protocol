@@ -6,6 +6,7 @@
 hivemind_websocket_protocol/
     __init__.py          # HiveMindWebsocketProtocol, HiveMindTornadoWebSocket
     _client_ip.py        # parse_networks(), resolve_client_ip()
+    health.py            # /_healthz loopback probe, HiveMindWebApplication
     version.py           # VERSION_MAJOR / MINOR / BUILD / ALPHA constants
 tests/
     test_client_ip.py    # unit tests for IP resolution logic (~50 cases)
