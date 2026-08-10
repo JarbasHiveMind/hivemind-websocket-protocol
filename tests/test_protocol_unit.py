@@ -10,6 +10,7 @@ import os
 import socket
 import threading
 import time
+from http.client import HTTPConnection
 from pathlib import Path
 
 import pytest
@@ -135,7 +136,7 @@ def _free_port() -> int:
 
 
 def test_run_starts_and_serves_on_plain_ws():
-    """Calling proto.run() actually binds the port and starts the ioloop."""
+    """Calling proto.run() binds the port and serves local liveness."""
     master = MasterNode.create("MX", require_crypto=False, handshake_enabled=True)
     port = _free_port()
     proto = HiveMindWebsocketProtocol(
@@ -154,35 +155,32 @@ def test_run_starts_and_serves_on_plain_ws():
     def _run():
         # run() calls IOLoop.current() inside; needs the policy on this thread.
         asyncio.set_event_loop_policy(AnyThreadEventLoopPolicy())
-        # Schedule a stop right after the loop is up.
-        threading.Thread(target=_stop_when_ready, daemon=True).start()
         started.set()
         proto.run()
-
-    def _stop_when_ready():
-        # Wait for run() to install the class-level loop reference, then stop it.
-        for _ in range(200):
-            loop = getattr(HiveMindTornadoWebSocket, "loop", None)
-            if loop is not None and getattr(loop, "asyncio_loop", None) is not None:
-                # Give the loop a moment to actually start before stopping it.
-                time.sleep(0.1)
-                loop.add_callback(loop.stop)
-                return
-            time.sleep(0.05)
 
     t = threading.Thread(target=_run, daemon=True)
     t.start()
     assert started.wait(2)
-    # Give run() a beat to bind + start.
-    time.sleep(0.3)
-    # While it's running, the port should be listening.
-    s = socket.socket()
     try:
-        s.settimeout(1)
-        s.connect(("127.0.0.1", port))
+        for _ in range(100):
+            connection = HTTPConnection("127.0.0.1", port, timeout=1)
+            try:
+                connection.request("GET", "/_healthz")
+                response = connection.getresponse()
+                assert response.status == 204
+                assert response.read() == b""
+                break
+            except OSError:
+                time.sleep(0.02)
+            finally:
+                connection.close()
+        else:
+            raise AssertionError("listener health endpoint did not become ready")
     finally:
-        s.close()
-    # The stop callback should have stopped the loop; join the thread.
+        loop = getattr(HiveMindTornadoWebSocket, "loop", None)
+        if loop is not None:
+            loop.add_callback(loop.stop)
+
     t.join(timeout=5)
     assert not t.is_alive(), "run() did not return after ioloop.stop()"
 

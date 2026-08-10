@@ -8,21 +8,20 @@ import time
 from os import makedirs
 from os.path import exists, join
 from socket import gethostname
-from typing import Dict, Any, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import pybase64
-from OpenSSL import crypto
+from hivemind_bus_client.message import HiveMessageType
 from hivemind_plugin_manager.protocols import NetworkProtocol
+from OpenSSL import crypto
 from ovos_bus_client.session import Session
 from ovos_utils.log import LOG
 from ovos_utils.xdg_utils import xdg_data_home
 from poorman_handshake import PasswordHandShake
 from tornado import ioloop
-from tornado import web
 from tornado.platform.asyncio import AnyThreadEventLoopPolicy
 from tornado.websocket import WebSocketHandler
 
-from hivemind_bus_client.message import HiveMessageType
 try:
     from hivemind_core.config import runtime_password_min_bits
 except ImportError:  # released hivemind-core without the helper
@@ -32,18 +31,22 @@ except ImportError:  # released hivemind-core without the helper
         return 0.0 if os.environ.get("HIVEMIND_DISABLE_PASSWORD_STRENGTH_CHECK", "").strip().lower() in ("1", "true", "yes", "on") else 40.0
 
 from hivemind_core.protocol import (
-    HiveMindListenerProtocol,
     HiveMindClientConnection,
-    HiveMindNodeType
+    HiveMindListenerProtocol,
+    HiveMindNodeType,
 )
-from hivemind_plugin_manager.protocols import ClientCallbacks
 from hivemind_plugin_manager.database import Client
+from hivemind_plugin_manager.protocols import ClientCallbacks
 
 from hivemind_websocket_protocol._client_ip import (
     parse_networks,
     resolve_client_ip,
 )
-
+from hivemind_websocket_protocol.health import (
+    LOCAL_HEALTH_PATH,
+    HiveMindWebApplication,
+    LocalHealthHandler,
+)
 
 DEFAULT_TRUSTED_HEADERS = "x-forwarded-for,x-real-ip"
 DEFAULT_WEBSOCKET_PING_INTERVAL = 30.0
@@ -137,9 +140,12 @@ class HiveMindWebsocketProtocol(NetworkProtocol):
         host = host.split("://")[-1]
         port = int(self.config.get("port") or self.identity.default_port or 5678)
 
-        routes: list = [("/", HiveMindTornadoWebSocket)]
+        routes: list = [
+            (LOCAL_HEALTH_PATH, LocalHealthHandler),
+            ("/", HiveMindTornadoWebSocket),
+        ]
         websocket_ping_settings = self._websocket_ping_settings()
-        application = web.Application(
+        application = HiveMindWebApplication(
             routes,
             trusted_networks=trusted_networks,
             trusted_headers=trusted_headers,
