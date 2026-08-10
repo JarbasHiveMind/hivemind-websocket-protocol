@@ -4,6 +4,7 @@ import math
 import os
 import os.path
 import random
+import threading
 import time
 from os import makedirs
 from os.path import exists, join
@@ -19,8 +20,10 @@ from ovos_utils.log import LOG
 from ovos_utils.xdg_utils import xdg_data_home
 from poorman_handshake import PasswordHandShake
 from tornado import ioloop
+from tornado import web
 from tornado.platform.asyncio import AnyThreadEventLoopPolicy
 from tornado.websocket import WebSocketHandler
+from tornado.websocket import WebSocketClosedError, WebSocketHandler
 
 try:
     from hivemind_core.config import runtime_password_min_bits
@@ -114,8 +117,10 @@ class HiveMindWebsocketProtocol(NetworkProtocol):
 
     def run(self):
         LOG.debug(f"websocket server config: {self.config}")
-        asyncio.set_event_loop_policy(AnyThreadEventLoopPolicy())
-        HiveMindTornadoWebSocket.loop = ioloop.IOLoop.current()
+        asyncio_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(asyncio_loop)
+        loop = ioloop.IOLoop.current()
+        HiveMindTornadoWebSocket.loop = loop
         HiveMindTornadoWebSocket.hm_protocol = self.hm_protocol
 
         if "trusted_proxy_cidrs" in self.config:
@@ -151,23 +156,36 @@ class HiveMindWebsocketProtocol(NetworkProtocol):
             trusted_headers=trusted_headers,
             **websocket_ping_settings,
         )
-        if ssl:
-            cert_file = f"{cert_dir}/{cert_name}.crt"
-            key_file = f"{cert_dir}/{cert_name}.key"
-            if not os.path.isfile(key_file):
-                LOG.info("generating self-signed SSL certificate")
-                cert_file, key_file = self.create_self_signed_cert(cert_dir, cert_name)
-            LOG.debug("using ssl key at " + key_file)
-            LOG.debug("using ssl certificate at " + cert_file)
-            ssl_options = {"certfile": cert_file, "keyfile": key_file}
+        startup_error: Optional[Exception] = None
 
-            LOG.info("wss listener started")
-            application.listen(port, host, ssl_options=ssl_options)
-        else:
-            LOG.info("ws listener started")
-            application.listen(port, host)
+        def start_listener() -> None:
+            nonlocal startup_error
+            try:
+                if ssl:
+                    cert_file = f"{cert_dir}/{cert_name}.crt"
+                    key_file = f"{cert_dir}/{cert_name}.key"
+                    if not os.path.isfile(key_file):
+                        LOG.info("generating self-signed SSL certificate")
+                        cert_file, key_file = self.create_self_signed_cert(
+                            cert_dir, cert_name
+                        )
+                    LOG.debug("using ssl key at " + key_file)
+                    LOG.debug("using ssl certificate at " + cert_file)
+                    ssl_options = {"certfile": cert_file, "keyfile": key_file}
+                    application.listen(port, host, ssl_options=ssl_options)
+                    LOG.info("wss listener started")
+                else:
+                    application.listen(port, host)
+                    LOG.info("ws listener started")
+            except Exception as e:
+                startup_error = e
+                LOG.exception("failed to start websocket listener")
+                loop.stop()
 
-        HiveMindTornadoWebSocket.loop.start()  # blocking
+        loop.add_callback(start_listener)
+        loop.start()  # blocking
+        if startup_error is not None:
+            raise startup_error
 
     @staticmethod
     def create_self_signed_cert(
@@ -216,6 +234,47 @@ class HiveMindWebsocketProtocol(NetworkProtocol):
         return cert_path, key_path
 
 
+class ClientDatabaseSync:
+    """Collapses concurrent ``db.sync()`` calls into one per ``debounce_s``.
+
+    An api-key miss makes every connection want a fresh database. Without
+    this, a burst of unknown keys becomes a burst of syncs. One instance is
+    shared by every connection on the server, so the state is deliberately
+    process-wide rather than per-handler.
+
+    A failing sync is remembered for the rest of the window and re-raised at
+    the callers that arrive during it, rather than each of them retrying a
+    database that has just proven unreachable.
+    """
+
+    def __init__(self, debounce_s: float = 1.0):
+        self.debounce_s = debounce_s
+        self._lock = threading.Lock()
+        self._last_ts: Optional[float] = None
+        self._last_error: Optional[Exception] = None
+
+    def reset(self) -> None:
+        with self._lock:
+            self._last_ts = None
+            self._last_error = None
+
+    def sync(self, db: Any) -> None:
+        with self._lock:
+            now = time.monotonic()
+            if self._last_ts is not None and now - self._last_ts < self.debounce_s:
+                if self._last_error is not None:
+                    raise self._last_error
+                return
+            self._last_ts = now
+            try:
+                db.sync()
+            except Exception as exc:
+                self._last_error = exc
+                raise
+            else:
+                self._last_error = None
+
+
 class HiveMindTornadoWebSocket(WebSocketHandler):
     """
     WebSocket handler for managing HiveMind client connections.
@@ -226,6 +285,11 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
     hm_protocol = None
     source_ip: Optional[str] = None
     last_pong: Optional[float] = None
+    _sync_lock = threading.Lock()
+    _last_sync_ts = 0.0
+    _last_sync_error: Optional[Exception] = None
+    _sync_debounce_s = 1.0
+    db_sync = ClientDatabaseSync()
 
     def _client_ip(self) -> Optional[str]:
         return resolve_client_ip(
@@ -253,15 +317,19 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
         return name, key
 
     def on_message(self, message: str) -> None:
+        self._handle_inbound_message(message)
+
+    def _handle_inbound_message(self, message: str) -> None:
         message = self.client.decode(message)
         peer = self._peer_label(self.client.peer)
         if (
                 message.msg_type == HiveMessageType.BUS
                 and message.payload.msg_type == "recognizer_loop:b64_audio"
         ):
-            LOG.info(f"Received {peer} sent base64 audio for STT")
+            LOG.debug(f"Received {peer} sent base64 audio for STT")
         else:
             LOG.info("Received %s message: %s", peer, message.msg_type)
+            LOG.debug(f"Received {peer} message: {message}")
         self.hm_protocol.handle_message(message, self.client)
 
     def _peer_label(self, peer: str) -> str:
@@ -269,6 +337,13 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
 
     def on_pong(self, data: bytes) -> None:
         self.last_pong = time.monotonic()
+    def _current_peer_label(self) -> str:
+        client = getattr(self, "client", None)
+        return self._peer_label(getattr(client, "peer", "unknown"))
+
+    @classmethod
+    def _sync_client_database(cls, db: Any) -> None:
+        cls.db_sync.sync(db)
 
     def open(self) -> None:
         """
@@ -287,12 +362,18 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
             )
             self.close(code=1008, reason="invalid authorization")
             return
-        LOG.info(f"Authorizing client from {self.source_ip or 'unknown'} - {useragent}:{key}")
+        LOG.debug(f"Authorizing client from {self.source_ip or 'unknown'} - {useragent}")
 
         def do_send(payload: str, is_bin: bool):
             def _write():
                 try:
                     self.write_message(payload, is_bin)
+                except WebSocketClosedError:
+                    LOG.debug(
+                        "Websocket already closed while writing to "
+                        f"{self._peer_label(getattr(self.client, 'peer', 'unknown'))}"
+                    )
+                    self.close()
                 except Exception as exc:
                     LOG.warning(
                         "Could not write websocket message to "
@@ -314,10 +395,22 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
             name=useragent,
             hm_protocol=self.hm_protocol
         )
-        self.hm_protocol.db.sync()
         user: Client = self.hm_protocol.db.get_client_by_api_key(key)
+        sync_error = False
+        if not user:
+            try:
+                self._sync_client_database(self.hm_protocol.db)
+            except Exception:
+                sync_error = True
+                LOG.exception("Client database sync failed while retrying api key lookup")
+            else:
+                user = self.hm_protocol.db.get_client_by_api_key(key)
 
         if not user:
+            if sync_error:
+                LOG.error("Client database unavailable during api key lookup")
+                self.close(code=1011, reason="client database unavailable")
+                return
             LOG.error("Client provided an invalid api key")
             self.hm_protocol.handle_invalid_key_connected(self.client)
             self.close()
@@ -325,8 +418,6 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
 
         self.client.name = f"{useragent}::{user.client_id}::{user.name}"
         self.client.crypto_key = user.crypto_key
-        self.client.skill_blacklist = user.skill_blacklist or []
-        self.client.intent_blacklist = user.intent_blacklist or []
         self.client.allowed_types = user.allowed_types
         self.client.can_broadcast = user.can_broadcast
         self.client.can_propagate = user.can_propagate
@@ -380,6 +471,7 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
             self._peer_label(client.peer), self.close_code, self.close_reason,
             f"{since_pong:.1f}" if since_pong is not None else "unknown",
         )
+        LOG.debug(f"disconnecting client: {self._peer_label(client.peer)}")
         self.hm_protocol.handle_client_disconnected(client)
 
     def check_origin(self, origin) -> bool:

@@ -12,9 +12,12 @@ import threading
 import time
 from http.client import HTTPConnection
 from pathlib import Path
+from types import SimpleNamespace
 
+import pybase64
 import pytest
 from tornado.platform.asyncio import AnyThreadEventLoopPolicy
+from tornado.websocket import WebSocketClosedError
 import asyncio
 
 from hivemind_websocket_protocol import (
@@ -24,6 +27,11 @@ from hivemind_websocket_protocol import (
     HiveMindWebsocketProtocol,
 )
 from hivescope.node import MasterNode
+
+
+@pytest.fixture(autouse=True)
+def _reset_websocket_sync_state():
+    HiveMindTornadoWebSocket.db_sync.reset()
 
 
 # --- version.py module load ------------------------------------------------
@@ -98,6 +106,258 @@ def test_websocket_ping_settings_non_finite_values_fall_back(monkeypatch, value)
         "websocket_ping_interval": DEFAULT_WEBSOCKET_PING_INTERVAL,
         "websocket_ping_timeout": DEFAULT_WEBSOCKET_PING_TIMEOUT,
     }
+
+
+# --- open() auth path ------------------------------------------------------
+
+def _auth_user(client_id=1, name="unit-client"):
+    return SimpleNamespace(
+        client_id=client_id,
+        name=name,
+        crypto_key=None,
+        skill_blacklist=[],
+        intent_blacklist=[],
+        allowed_types=["recognizer_loop:utterance"],
+        can_broadcast=True,
+        can_propagate=True,
+        can_escalate=True,
+        is_admin=False,
+        password=None,
+    )
+
+
+def _open_handler(db, key="api-key", seen_clients=None,
+                  invalid_clients=None, closes=None):
+    seen_clients = seen_clients if seen_clients is not None else []
+    invalid_clients = invalid_clients if invalid_clients is not None else []
+    closes = closes if closes is not None else []
+    hm_protocol = SimpleNamespace(
+        db=db,
+        identity=SimpleNamespace(private_key=None),
+        # HiveMindClientConnection builds its per-connection HandShake from
+        # the protocol's cached RSA identity key rather than re-importing the
+        # PEM per connection. None is the right stand-in: these tests never
+        # run a handshake, and a real key costs a 2048-bit import each time.
+        identity_rsa_key=None,
+        handshake_enabled=True,
+        require_crypto=False,
+        handle_new_client=seen_clients.append,
+        handle_invalid_key_connected=invalid_clients.append,
+        handle_invalid_protocol_version=lambda client: None,
+    )
+
+    handler = HiveMindTornadoWebSocket.__new__(HiveMindTornadoWebSocket)
+    handler.hm_protocol = hm_protocol
+    handler.request = SimpleNamespace(remote_ip="127.0.0.1", headers={})
+    handler.application = SimpleNamespace(settings={})
+    handler.loop = SimpleNamespace(
+        install=lambda: None,
+        add_callback=lambda callback, *args, **kwargs: callback(*args, **kwargs),
+    )
+    handler.write_message = lambda payload, is_bin=False: None
+    handler.close = lambda *args, **kwargs: closes.append(
+        {"args": args, "kwargs": kwargs}
+    )
+    handler.get_query_argument = lambda name, default=None: pybase64.b64encode(
+        f"agent:{key}".encode("utf-8")
+    ).decode("ascii")
+    return handler
+
+
+def test_open_schedules_downstream_writes_on_ioloop():
+    user = _auth_user()
+    scheduled = []
+    writes = []
+    handler = _open_handler(
+        SimpleNamespace(get_client_by_api_key=lambda key: user),
+        seen_clients=[],
+    )
+    handler.loop = SimpleNamespace(
+        add_callback=lambda callback, *args, **kwargs: scheduled.append(
+            (callback, args, kwargs)
+        )
+    )
+    handler.write_message = lambda payload, is_bin=False: writes.append((payload, is_bin))
+
+    handler.open()
+    handler.client.send_msg("payload", True)
+
+    assert writes == []
+    assert len(scheduled) == 1
+    callback, args, kwargs = scheduled.pop()
+    callback(*args, **kwargs)
+    assert writes == [("payload", True)]
+
+
+def test_open_treats_closed_downstream_write_as_debug(monkeypatch):
+    user = _auth_user()
+    closes = []
+    warnings = []
+    debugs = []
+    handler = _open_handler(
+        SimpleNamespace(get_client_by_api_key=lambda key: user),
+        seen_clients=[],
+        closes=closes,
+    )
+    handler.write_message = lambda payload, is_bin=False: (_ for _ in ()).throw(
+        WebSocketClosedError()
+    )
+    monkeypatch.setattr(
+        "hivemind_websocket_protocol.LOG.warning",
+        lambda *args, **kwargs: warnings.append((args, kwargs)),
+    )
+    monkeypatch.setattr(
+        "hivemind_websocket_protocol.LOG.debug",
+        lambda *args, **kwargs: debugs.append((args, kwargs)),
+    )
+
+    handler.open()
+    handler.client.send_msg("payload", False)
+
+    assert closes
+    assert not warnings
+    assert debugs
+
+
+def test_open_uses_direct_api_key_lookup_without_sync():
+    user = _auth_user()
+
+    def fail_sync():
+        raise AssertionError("db.sync must not run on websocket open")
+
+    seen_clients = []
+    db = SimpleNamespace(
+        sync=fail_sync,
+        get_client_by_api_key=lambda key: user if key == "api-key" else None,
+    )
+    handler = _open_handler(db, seen_clients=seen_clients)
+
+    handler.open()
+
+    assert len(seen_clients) == 1
+    assert seen_clients[0].name == "agent::1::unit-client"
+
+
+def test_open_syncs_once_after_api_key_miss():
+    HiveMindTornadoWebSocket.db_sync.reset()
+    user = _auth_user(client_id=2, name="fresh-client")
+
+    state = {"synced": False, "syncs": 0}
+
+    def sync():
+        state["syncs"] += 1
+        state["synced"] = True
+
+    def lookup(key):
+        if key == "fresh-key" and state["synced"]:
+            return user
+        return None
+
+    seen_clients = []
+    invalid_clients = []
+    db = SimpleNamespace(sync=sync, get_client_by_api_key=lookup)
+    handler = _open_handler(
+        db,
+        key="fresh-key",
+        seen_clients=seen_clients,
+        invalid_clients=invalid_clients,
+    )
+
+    handler.open()
+
+    assert state["syncs"] == 1
+    assert len(invalid_clients) == 0
+    assert len(seen_clients) == 1
+    assert seen_clients[0].name == "agent::2::fresh-client"
+
+
+def test_open_debounces_sync_after_recent_api_key_miss():
+    HiveMindTornadoWebSocket.db_sync.reset()
+    # widen the window so the assertion is about the debounce, not about how
+    # long two open() calls (RSA handshake included) happen to take on CI
+    HiveMindTornadoWebSocket.db_sync.debounce_s = 60.0
+    user = _auth_user(client_id=3, name="synced-client")
+    state = {"synced": False, "syncs": 0}
+
+    def sync():
+        state["syncs"] += 1
+        state["synced"] = True
+
+    def lookup(key):
+        if key == "fresh-key" and state["synced"]:
+            return user
+        return None
+
+    db = SimpleNamespace(sync=sync, get_client_by_api_key=lookup)
+    seen_clients = []
+    invalid_clients = []
+    try:
+        _open_handler(db, key="fresh-key",
+                      seen_clients=seen_clients).open()
+        _open_handler(db, key="missing-key",
+                      invalid_clients=invalid_clients).open()
+    finally:
+        HiveMindTornadoWebSocket.db_sync.debounce_s = 1.0
+
+    assert state["syncs"] == 1
+    assert len(seen_clients) == 1
+    assert len(invalid_clients) == 1
+
+
+def test_open_reports_sync_failure_as_server_error():
+    HiveMindTornadoWebSocket.db_sync.reset()
+
+    def fail_sync():
+        raise RuntimeError("redis unavailable")
+
+    invalid_clients = []
+    closes = []
+    db = SimpleNamespace(
+        sync=fail_sync,
+        get_client_by_api_key=lambda key: None,
+    )
+    handler = _open_handler(
+        db,
+        key="fresh-key",
+        invalid_clients=invalid_clients,
+        closes=closes,
+    )
+
+    handler.open()
+
+    assert invalid_clients == []
+    assert closes[-1]["kwargs"] == {
+        "code": 1011,
+        "reason": "client database unavailable",
+    }
+
+
+def test_open_debounces_failed_sync_after_api_key_miss(monkeypatch):
+    HiveMindTornadoWebSocket.db_sync.reset()
+    monkeypatch.setattr(HiveMindTornadoWebSocket.db_sync, "debounce_s", 60.0)
+    state = {"syncs": 0}
+
+    def fail_sync():
+        state["syncs"] += 1
+        raise RuntimeError("redis unavailable")
+
+    db = SimpleNamespace(
+        sync=fail_sync,
+        get_client_by_api_key=lambda key: None,
+    )
+    closes = []
+    invalid_clients = []
+    _open_handler(db, key="fresh-key", closes=closes).open()
+    _open_handler(
+        db,
+        key="fresh-key",
+        closes=closes,
+        invalid_clients=invalid_clients,
+    ).open()
+
+    assert state["syncs"] == 1
+    assert invalid_clients == []
+    assert [close["kwargs"]["code"] for close in closes] == [1011, 1011]
 
 
 # --- self-signed cert generation ------------------------------------------
@@ -183,6 +443,27 @@ def test_run_starts_and_serves_on_plain_ws():
 
     t.join(timeout=5)
     assert not t.is_alive(), "run() did not return after ioloop.stop()"
+
+
+def test_run_raises_when_listener_bind_fails():
+    """Bind failures should propagate instead of looking like clean exits."""
+    master = MasterNode.create("MF", require_crypto=False, handshake_enabled=True)
+    blocker = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    blocker.bind(("127.0.0.1", 0))
+    blocker.listen(1)
+    port = blocker.getsockname()[1]
+    proto = HiveMindWebsocketProtocol(
+        config={"host": "127.0.0.1", "port": port, "ssl": False},
+        hm_protocol=master.hm_protocol,
+    )
+    if hasattr(HiveMindTornadoWebSocket, "loop"):
+        del HiveMindTornadoWebSocket.loop
+
+    try:
+        with pytest.raises(OSError):
+            proto.run()
+    finally:
+        blocker.close()
 
 
 def test_run_ssl_path_uses_existing_cert(tmp_path):
