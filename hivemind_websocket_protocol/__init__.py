@@ -43,6 +43,11 @@ from hivemind_websocket_protocol._client_ip import (
     parse_networks,
     resolve_client_ip,
 )
+from hivemind_websocket_protocol._health import (
+    LOCAL_HEALTH_PATH,
+    HiveMindWebApplication,
+    LocalHealthHandler,
+)
 
 
 DEFAULT_TRUSTED_HEADERS = "x-forwarded-for,x-real-ip"
@@ -137,9 +142,12 @@ class HiveMindWebsocketProtocol(NetworkProtocol):
         host = host.split("://")[-1]
         port = int(self.config.get("port") or self.identity.default_port or 5678)
 
-        routes: list = [("/", HiveMindTornadoWebSocket)]
+        routes: list = [
+            (LOCAL_HEALTH_PATH, LocalHealthHandler),
+            ("/", HiveMindTornadoWebSocket),
+        ]
         websocket_ping_settings = self._websocket_ping_settings()
-        application = web.Application(
+        application = HiveMindWebApplication(
             routes,
             trusted_networks=trusted_networks,
             trusted_headers=trusted_headers,
