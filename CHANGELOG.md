@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.5a3](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.2.5a3) (2026-08-10)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.2.5a1...0.2.5a3)
+
+**Merged pull requests:**
+
+- test: pin that health access reads the socket peer, not a header [\#50](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/50) ([JarbasAl](https://github.com/JarbasAl))
+- Add quiet local listener health endpoint [\#49](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/49) ([goldyfruit](https://github.com/goldyfruit))
+
 ## [0.2.5a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.2.5a1) (2026-08-03)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.2.4a1...0.2.5a1)
