@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.7a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.2.7a1) (2026-08-10)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.2.6a4...0.2.7a1)
+
+**Merged pull requests:**
+
+- fix: tell a refused client why its key was rejected [\#58](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/58) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.2.6a4](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.2.6a4) (2026-08-10)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.2.6a3...0.2.6a4)
