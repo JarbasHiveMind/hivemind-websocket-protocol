@@ -71,13 +71,34 @@ DEFAULT_WEBSOCKET_PING_TIMEOUT = 20.0
 #: still retargets its level. Only the per-call stack walk is dropped. It is
 #: resolved lazily because ``LOG.init`` usually runs after this import.
 _RECEIVE_LOGGER = None
+_RECEIVE_LOGGER_KEY = None
+_RECEIVE_LOGGER_LOCK = threading.Lock()
 
 
 def _receive_logger():
-    """Return the cached hot-path logger, creating it on first use."""
-    global _RECEIVE_LOGGER
-    if _RECEIVE_LOGGER is None:
-        _RECEIVE_LOGGER = LOG.create_logger(f"{LOG.name} - {__name__}")
+    """Return the cached hot-path logger, rebuilding when LOG rewires.
+
+    Cached against ``(LOG.name, LOG.base_path)``: ``LOG.init()`` normally runs
+    after import, and a logger created before it would carry only the stdout
+    handler -- configured file logging would silently vanish from this path,
+    because init does not rebuild handlers on existing loggers. When the
+    fingerprint changes, the stale entry and its handlers are dropped so
+    ``create_logger`` rebuilds against the live config. The lock keeps two
+    racing first frames from attaching duplicate handlers to the same
+    process-wide ``logging.getLogger`` name.
+    """
+    global _RECEIVE_LOGGER, _RECEIVE_LOGGER_KEY
+    key = (LOG.name, LOG.base_path)
+    if _RECEIVE_LOGGER is None or _RECEIVE_LOGGER_KEY != key:
+        with _RECEIVE_LOGGER_LOCK:
+            if _RECEIVE_LOGGER is None or _RECEIVE_LOGGER_KEY != key:
+                name = f"{LOG.name} - {__name__}"
+                stale = LOG._loggers.pop(name, None)
+                if stale is not None:
+                    for handler in list(stale.handlers):
+                        stale.removeHandler(handler)
+                _RECEIVE_LOGGER = LOG.create_logger(name)
+                _RECEIVE_LOGGER_KEY = key
     return _RECEIVE_LOGGER
 
 

@@ -40,10 +40,18 @@ def handler():
 
 @pytest.fixture(autouse=True)
 def _reset_receive_logger():
-    """Drop the cached logger so each test resolves its own."""
-    hwp._RECEIVE_LOGGER = None
+    """Drop the cache and the logging singleton's handlers between tests."""
+    def reset():
+        name = f"{LOG.name} - {hwp.__name__}"
+        stale = logging.getLogger(name)
+        for handler in list(stale.handlers):
+            stale.removeHandler(handler)
+        LOG._loggers.pop(name, None)
+        hwp._RECEIVE_LOGGER = None
+        hwp._RECEIVE_LOGGER_KEY = None
+    reset()
     yield
-    hwp._RECEIVE_LOGGER = None
+    reset()
 
 
 def _deliver(handler, message):
@@ -106,3 +114,35 @@ def test_receive_logger_follows_log_set_level():
         assert log.level == logging.WARNING
     finally:
         LOG.set_level(previous)
+
+
+def test_logger_rewires_after_log_init_changes_base_path(tmp_path):
+    """init after first use must not strand this path on stdout-only."""
+    hwp._receive_logger()
+    previous = LOG.base_path
+    try:
+        LOG.base_path = str(tmp_path)
+        kinds = {type(h).__name__ for h in hwp._receive_logger().handlers}
+        assert "RotatingFileHandler" in kinds
+    finally:
+        LOG.base_path = previous
+
+
+def test_concurrent_first_use_attaches_handlers_once():
+    import threading
+    gate = threading.Event()
+
+    def resolve():
+        gate.wait()
+        hwp._receive_logger()
+
+    threads = [threading.Thread(target=resolve) for _ in range(8)]
+    for t in threads:
+        t.start()
+    gate.set()
+    for t in threads:
+        t.join(timeout=10)
+
+    streams = [h for h in hwp._receive_logger().handlers
+               if type(h).__name__ == "StreamHandler"]
+    assert len(streams) <= 1
