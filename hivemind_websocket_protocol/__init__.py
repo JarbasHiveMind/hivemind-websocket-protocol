@@ -56,6 +56,31 @@ DEFAULT_WEBSOCKET_PING_INTERVAL = 30.0
 DEFAULT_WEBSOCKET_PING_TIMEOUT = 20.0
 
 
+#: Receive-path logger, resolved once.
+#:
+#: ``LOG.debug``/``LOG.info`` resolve the calling module, function and line
+#: with ``inspect.stack()`` on *every* call, before the level is checked, so a
+#: discarded DEBUG record costs the same as an emitted one. The websocket
+#: receive path runs on Tornado's single IOLoop that serves every connected
+#: satellite, so that cost is paid per inbound frame and delays every other
+#: peer on the node.
+#:
+#: ``LOG.create_logger`` returns the same OVOS-configured logger those calls
+#: would have used -- same formatter, stdout and rotating-file handlers -- and
+#: registers it in ``LOG._loggers``, so a later ``LOG.init``/``LOG.set_level``
+#: still retargets its level. Only the per-call stack walk is dropped. It is
+#: resolved lazily because ``LOG.init`` usually runs after this import.
+_RECEIVE_LOGGER = None
+
+
+def _receive_logger():
+    """Return the cached receive-path logger, creating it on first use."""
+    global _RECEIVE_LOGGER
+    if _RECEIVE_LOGGER is None:
+        _RECEIVE_LOGGER = LOG.create_logger(f"{LOG.name} - {__name__}")
+    return _RECEIVE_LOGGER
+
+
 def _split_csv(value: Any) -> Tuple[str, ...]:
     if not value:
         return ()
@@ -322,14 +347,18 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
     def _handle_inbound_message(self, message: str) -> None:
         message = self.client.decode(message)
         peer = self._peer_label(self.client.peer)
+        log = _receive_logger()
         if (
                 message.msg_type == HiveMessageType.BUS
                 and message.payload.msg_type == "recognizer_loop:b64_audio"
         ):
-            LOG.debug(f"Received {peer} sent base64 audio for STT")
+            log.debug("Received %s sent base64 audio for STT", peer)
         else:
-            LOG.info("Received %s message: %s", peer, message.msg_type)
-            LOG.debug(f"Received {peer} message: {message}")
+            log.info("Received %s message: %s", peer, message.msg_type)
+            # Lazy args, never an f-string: ``HiveMessage.__str__`` serializes
+            # the whole envelope to JSON, and that must not run when DEBUG is
+            # off. It also keeps a user's transcribed speech out of the cost.
+            log.debug("Received %s message: %s", peer, message)
         self.hm_protocol.handle_message(message, self.client)
 
     def _peer_label(self, peer: str) -> str:
