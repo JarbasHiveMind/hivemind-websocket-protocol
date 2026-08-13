@@ -387,9 +387,19 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
         def do_disconnect():
             self.loop.add_callback(self.close)
 
+        def do_reject(reason: str):
+            # Same code a malformed authorization header and an invalid api
+            # key already get. A bare close is indistinguishable from a
+            # network drop, so a satellite retries credentials that will never
+            # work and — because its socket did open — reports itself
+            # connected the whole time.
+            self.loop.add_callback(
+                lambda: self.close(code=1008, reason=reason or "identity refused"))
+
         self.client = HiveMindClientConnection(
             key=key,
             disconnect=do_disconnect,
+            reject=do_reject,
             send_msg=do_send,
             sess=Session(session_id="default"),  # will be re-assigned once client sends handshake
             name=useragent,
