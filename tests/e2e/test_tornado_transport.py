@@ -106,8 +106,15 @@ def test_bad_api_key_is_rejected(tornado_server):
         self_signed=False,
     )
     # bound the handshake retries so a rejected key fails fast instead of
-    # reconnecting forever
-    with pytest.raises(RuntimeError):
+    # reconnecting forever.
+    #
+    # Accept either exception: hivemind-bus-client used to surface a refused
+    # key as a bare RuntimeError, and now raises ConnectionRefusedError from
+    # _is_auth_rejection so a satellite can tell "wrong credentials, stop" from
+    # "connection dropped, retry". ConnectionRefusedError is an OSError, not a
+    # RuntimeError, so pinning either one alone breaks against the other half
+    # of the supported client range.
+    with pytest.raises((RuntimeError, ConnectionRefusedError)):
         bad.connect(handshake_max_retries=2)
     bad.close()
     _wait(lambda: not tornado_server.listener.clients, timeout=2)
