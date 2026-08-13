@@ -56,14 +56,14 @@ DEFAULT_WEBSOCKET_PING_INTERVAL = 30.0
 DEFAULT_WEBSOCKET_PING_TIMEOUT = 20.0
 
 
-#: Receive-path logger, resolved once.
+#: Connection hot-path logger, resolved once.
 #:
 #: ``LOG.debug``/``LOG.info`` resolve the calling module, function and line
 #: with ``inspect.stack()`` on *every* call, before the level is checked, so a
-#: discarded DEBUG record costs the same as an emitted one. The websocket
-#: receive path runs on Tornado's single IOLoop that serves every connected
-#: satellite, so that cost is paid per inbound frame and delays every other
-#: peer on the node.
+#: discarded DEBUG record costs the same as an emitted one. Admission, receive
+#: and disconnect all run on Tornado's single IOLoop that serves every
+#: connected satellite, so that cost is paid per connection and per inbound
+#: frame, and delays every other peer on the node.
 #:
 #: ``LOG.create_logger`` returns the same OVOS-configured logger those calls
 #: would have used -- same formatter, stdout and rotating-file handlers -- and
@@ -74,7 +74,7 @@ _RECEIVE_LOGGER = None
 
 
 def _receive_logger():
-    """Return the cached receive-path logger, creating it on first use."""
+    """Return the cached hot-path logger, creating it on first use."""
     global _RECEIVE_LOGGER
     if _RECEIVE_LOGGER is None:
         _RECEIVE_LOGGER = LOG.create_logger(f"{LOG.name} - {__name__}")
@@ -391,7 +391,8 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
             )
             self.close(code=1008, reason="invalid authorization")
             return
-        LOG.debug(f"Authorizing client from {self.source_ip or 'unknown'} - {useragent}")
+        _receive_logger().debug("Authorizing client from %s - %s",
+                                self.source_ip or "unknown", useragent)
 
         def do_send(payload: str, is_bin: bool):
             def _write():
@@ -485,9 +486,9 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
     def on_close(self):
         client = getattr(self, "client", None)
         if client is None:
-            LOG.debug(
-                f"closing unauthenticated websocket from {self.request.remote_ip} "
-                f"(no client was ever attached)"
+            _receive_logger().debug(
+                "closing unauthenticated websocket from %s "
+                "(no client was ever attached)", self.request.remote_ip
             )
             return
         # The age of the last pong cannot tell a ping timeout apart from a
@@ -501,13 +502,14 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
         since_pong = (
             time.monotonic() - self.last_pong if self.last_pong is not None else None
         )
-        LOG.info(
+        log = _receive_logger()
+        log.info(
             "disconnecting client: %s (close_code=%s, close_reason=%s, "
             "seconds_since_last_pong=%s)",
             self._peer_label(client.peer), self.close_code, self.close_reason,
             f"{since_pong:.1f}" if since_pong is not None else "unknown",
         )
-        LOG.debug(f"disconnecting client: {self._peer_label(client.peer)}")
+        log.debug("disconnecting client: %s", self._peer_label(client.peer))
         self.hm_protocol.handle_client_disconnected(client)
 
     def check_origin(self, origin) -> bool:

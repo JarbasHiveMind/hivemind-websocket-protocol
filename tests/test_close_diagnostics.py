@@ -12,8 +12,9 @@ a peer that timed out echoes nothing.
 
 `ovos_utils.log.LOG` sets `propagate = False` on its underlying logger, so
 `caplog`'s root-logger capture can silently miss records depending on test
-order. These tests instead patch `hivemind_websocket_protocol.LOG` directly
-and assert on the calls it receives.
+order. These tests instead patch the module's cached hot-path logger
+(`_RECEIVE_LOGGER`, returned by `_receive_logger()`) and assert on the calls
+it receives.
 """
 import time
 from unittest.mock import MagicMock
@@ -75,7 +76,7 @@ def test_on_pong_stamps_last_pong():
 
 def test_close_reports_code_reason_and_pong_age(monkeypatch):
     log = MagicMock()
-    monkeypatch.setattr(hwp, "LOG", log)
+    monkeypatch.setattr(hwp, "_RECEIVE_LOGGER", log)
     handler = _handler(
         last_pong=time.monotonic() - 12,
         close_code=1006,
@@ -98,7 +99,7 @@ def test_a_real_ping_timeout_is_reported_with_its_pong_age(monkeypatch):
     is what the log must report - no threshold separates it from an ordinary
     disconnect."""
     log = MagicMock()
-    monkeypatch.setattr(hwp, "LOG", log)
+    monkeypatch.setattr(hwp, "_RECEIVE_LOGGER", log)
     round_trip = 0.3
     age = DEFAULT_WEBSOCKET_PING_INTERVAL + DEFAULT_WEBSOCKET_PING_TIMEOUT - round_trip
     handler = _handler(last_pong=time.monotonic() - age)
@@ -113,7 +114,7 @@ def test_no_pong_age_ever_triggers_a_verdict(monkeypatch):
     one factual line, never a guess about the cause."""
     for age in (0.5, 25, 49.7, 50, 120, 3600):
         log = MagicMock()
-        monkeypatch.setattr(hwp, "LOG", log)
+        monkeypatch.setattr(hwp, "_RECEIVE_LOGGER", log)
         handler = _handler(last_pong=time.monotonic() - age)
 
         handler.on_close()
@@ -123,7 +124,7 @@ def test_no_pong_age_ever_triggers_a_verdict(monkeypatch):
 
 def test_client_that_never_ponged_reports_unknown_age(monkeypatch):
     log = MagicMock()
-    monkeypatch.setattr(hwp, "LOG", log)
+    monkeypatch.setattr(hwp, "_RECEIVE_LOGGER", log)
     handler = _handler(last_pong=None)
 
     handler.on_close()
@@ -133,7 +134,7 @@ def test_client_that_never_ponged_reports_unknown_age(monkeypatch):
 
 def test_on_close_never_logs_payload_or_access_key(monkeypatch):
     log = MagicMock()
-    monkeypatch.setattr(hwp, "LOG", log)
+    monkeypatch.setattr(hwp, "_RECEIVE_LOGGER", log)
     for last_pong in (time.monotonic() - 1, time.monotonic() - 3600):
         handler = _handler(last_pong=last_pong)
         handler.on_close()
