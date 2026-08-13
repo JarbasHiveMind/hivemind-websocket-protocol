@@ -119,8 +119,8 @@ def test_no_pong_age_ever_triggers_a_verdict(monkeypatch):
     for age in (0.5, 25, 49.7, 50, 120, 3600):
         log = MagicMock()
         monkeypatch.setattr(hwp, "_RECEIVE_LOGGER", log)
-    monkeypatch.setattr(hwp, "_RECEIVE_LOGGER_KEY",
-                        (hwp.LOG.name, hwp.LOG.base_path))
+        monkeypatch.setattr(hwp, "_RECEIVE_LOGGER_KEY",
+                            (hwp.LOG.name, hwp.LOG.base_path))
         handler = _handler(last_pong=time.monotonic() - age)
 
         handler.on_close()
