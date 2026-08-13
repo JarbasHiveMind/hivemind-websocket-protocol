@@ -1,11 +1,13 @@
 import asyncio
 import dataclasses
+import hashlib
 import math
 import os
 import os.path
 import random
 import threading
 import time
+from collections import OrderedDict
 from os import makedirs
 from os.path import exists, join
 from socket import gethostname
@@ -18,7 +20,7 @@ from OpenSSL import crypto
 from ovos_bus_client.session import Session
 from ovos_utils.log import LOG
 from ovos_utils.xdg_utils import xdg_data_home
-from poorman_handshake import PasswordHandShake
+from poorman_handshake import PasswordHandShake, check_password_strength
 from tornado import ioloop
 from tornado import web
 from tornado.platform.asyncio import AnyThreadEventLoopPolicy
@@ -54,6 +56,56 @@ from hivemind_websocket_protocol.health import (
 DEFAULT_TRUSTED_HEADERS = "x-forwarded-for,x-real-ip"
 DEFAULT_WEBSOCKET_PING_INTERVAL = 30.0
 DEFAULT_WEBSOCKET_PING_TIMEOUT = 20.0
+
+
+#: Passwords already checked against a given policy, most recent last.
+#:
+#: ``PasswordHandShake(password, min_bits=N)`` runs the credential through
+#: zxcvbn on construction. That is the right thing to do, but it is ~2.2 ms
+#: and Core builds one per admission on the single Tornado IOLoop, so a fleet
+#: reconnecting at once serialises behind it: 400 satellites is ~0.87 s of
+#: event loop spent re-deciding that the same handful of passwords are still
+#: strong.
+#:
+#: Entries are keyed on a *keyed* blake2s digest and the policy that accepted
+#: it. The key is per-process and never persisted, so this is an LRU lookup
+#: key, not a stored password hash; rotating a password or tightening
+#: ``min_bits`` misses the cache and re-validates.
+_PASSWORD_STRENGTH_LOCK = threading.Lock()
+_PASSWORD_STRENGTH_CACHE: "OrderedDict[Tuple[bytes, float], None]" = OrderedDict()
+_PASSWORD_STRENGTH_CACHE_KEY = os.urandom(32)
+_PASSWORD_STRENGTH_CACHE_SIZE = 4096
+
+
+def _password_handshake(password: str,
+                        min_bits: Optional[float] = None) -> PasswordHandShake:
+    """Build a PasswordHandShake, validating each password once per policy.
+
+    Raises ``WeakPasswordError`` exactly as the plain constructor does -- a
+    weak password is never cached, so it is rejected on every attempt.
+    """
+    if min_bits is None:
+        min_bits = runtime_password_min_bits()
+
+    if min_bits > 0:
+        digest = hashlib.blake2s(
+            password.encode("utf-8"),
+            key=_PASSWORD_STRENGTH_CACHE_KEY,
+        ).digest()
+        cache_key = (digest, min_bits)
+        with _PASSWORD_STRENGTH_LOCK:
+            if cache_key in _PASSWORD_STRENGTH_CACHE:
+                _PASSWORD_STRENGTH_CACHE.move_to_end(cache_key)
+            else:
+                # Outside the cache-hit branch on purpose: a rejection must
+                # propagate and must not be remembered as a pass.
+                check_password_strength(password, min_bits=min_bits)
+                _PASSWORD_STRENGTH_CACHE[cache_key] = None
+                while len(_PASSWORD_STRENGTH_CACHE) > _PASSWORD_STRENGTH_CACHE_SIZE:
+                    _PASSWORD_STRENGTH_CACHE.popitem(last=False)
+
+    # Already validated above; min_bits=0 skips the duplicate zxcvbn run.
+    return PasswordHandShake(password, min_bits=0)
 
 
 def _split_csv(value: Any) -> Tuple[str, ...]:
@@ -430,7 +482,7 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
         self.client.is_admin = user.is_admin
         if user.password:
             # pre-shared password to derive aes_key
-            self.client.pswd_handshake = PasswordHandShake(user.password, min_bits=runtime_password_min_bits())
+            self.client.pswd_handshake = _password_handshake(user.password)
 
         self.client.node_type = HiveMindNodeType.NODE  # TODO . placeholder
 
