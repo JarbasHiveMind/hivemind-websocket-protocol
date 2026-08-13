@@ -97,6 +97,7 @@ def _receive_logger():
                 if stale is not None:
                     for handler in list(stale.handlers):
                         stale.removeHandler(handler)
+                        handler.close()
                 _RECEIVE_LOGGER = LOG.create_logger(name)
                 _RECEIVE_LOGGER_KEY = key
     return _RECEIVE_LOGGER

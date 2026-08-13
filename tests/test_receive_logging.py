@@ -46,6 +46,7 @@ def _reset_receive_logger():
         stale = logging.getLogger(name)
         for handler in list(stale.handlers):
             stale.removeHandler(handler)
+            handler.close()
         LOG._loggers.pop(name, None)
         hwp._RECEIVE_LOGGER = None
         hwp._RECEIVE_LOGGER_KEY = None
