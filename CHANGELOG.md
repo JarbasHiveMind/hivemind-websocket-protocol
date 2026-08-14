@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.8a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.2.8a1) (2026-08-14)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.2.7a1...0.2.8a1)
+
+**Merged pull requests:**
+
+- fix: floor hivescope\>=0.7.1a1 so e2e resolves the shim with .password [\#64](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/64) ([JarbasAl](https://github.com/JarbasAl))
+- fix\(tests\): accept the exception a refused key actually raises [\#62](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/62) ([goldyfruit](https://github.com/goldyfruit))
+
 ## [0.2.7a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.2.7a1) (2026-08-10)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.2.6a4...0.2.7a1)
