@@ -417,7 +417,21 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
         self._handle_inbound_message(message)
 
     def _handle_inbound_message(self, message: str) -> None:
-        message = self.client.decode(message)
+        try:
+            message = self.client.decode(message)
+        except Exception as e:
+            # Never log the raw frame here: decode() failures happen on
+            # ciphertext / encoded payloads that can carry credentials or
+            # other sensitive content, and an unguarded traceback (the
+            # previous behavior, since this propagated out of Tornado's
+            # on_message) would put that content in the logs.
+            LOG.warning(
+                "rejecting inbound message from %s: decode failed (%s)",
+                self._peer_label(getattr(self.client, "peer", "unknown")),
+                type(e).__name__,
+            )
+            self.close(code=1008, reason="invalid message")
+            return
         peer = self._peer_label(self.client.peer)
         log = _receive_logger()
         if (
@@ -456,10 +470,14 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
         try:
             useragent, key = self.decode_auth(auth)
         except (ValueError, UnicodeDecodeError) as e:
+            # Never log `auth` itself: it is the base64 "name:secret_key"
+            # blob, so logging it in any recoverable form would leak the
+            # credential. A length is enough to diagnose truncated/garbled
+            # headers without exposing the secret.
             LOG.warning(
                 f"rejecting websocket from {self.source_ip or self.request.remote_ip}: "
                 f"bad authorization ({e.__class__.__name__}: {e}) "
-                f"raw={auth!r}"
+                f"len={len(auth) if auth is not None else 0}"
             )
             self.close(code=1008, reason="invalid authorization")
             return
