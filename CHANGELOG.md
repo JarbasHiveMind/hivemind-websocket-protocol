@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.8a2](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.2.8a2) (2026-08-15)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.2.8a1...0.2.8a2)
+
+**Merged pull requests:**
+
+- perf: validate each password once per policy [\#67](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/67) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.2.8a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.2.8a1) (2026-08-14)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.2.7a1...0.2.8a1)
