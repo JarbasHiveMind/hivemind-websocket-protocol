@@ -106,6 +106,51 @@ def _password_handshake(password: str,
 
     # Already validated above; min_bits=0 skips the duplicate zxcvbn run.
     return PasswordHandShake(password, min_bits=0)
+#: Connection hot-path logger, resolved once.
+#:
+#: ``LOG.debug``/``LOG.info`` resolve the calling module, function and line
+#: with ``inspect.stack()`` on *every* call, before the level is checked, so a
+#: discarded DEBUG record costs the same as an emitted one. Admission, receive
+#: and disconnect all run on Tornado's single IOLoop that serves every
+#: connected satellite, so that cost is paid per connection and per inbound
+#: frame, and delays every other peer on the node.
+#:
+#: ``LOG.create_logger`` returns the same OVOS-configured logger those calls
+#: would have used -- same formatter, stdout and rotating-file handlers -- and
+#: registers it in ``LOG._loggers``, so a later ``LOG.init``/``LOG.set_level``
+#: still retargets its level. Only the per-call stack walk is dropped. It is
+#: resolved lazily because ``LOG.init`` usually runs after this import.
+_RECEIVE_LOGGER = None
+_RECEIVE_LOGGER_KEY = None
+_RECEIVE_LOGGER_LOCK = threading.Lock()
+
+
+def _receive_logger():
+    """Return the cached hot-path logger, rebuilding when LOG rewires.
+
+    Cached against ``(LOG.name, LOG.base_path)``: ``LOG.init()`` normally runs
+    after import, and a logger created before it would carry only the stdout
+    handler -- configured file logging would silently vanish from this path,
+    because init does not rebuild handlers on existing loggers. When the
+    fingerprint changes, the stale entry and its handlers are dropped so
+    ``create_logger`` rebuilds against the live config. The lock keeps two
+    racing first frames from attaching duplicate handlers to the same
+    process-wide ``logging.getLogger`` name.
+    """
+    global _RECEIVE_LOGGER, _RECEIVE_LOGGER_KEY
+    key = (LOG.name, LOG.base_path)
+    if _RECEIVE_LOGGER is None or _RECEIVE_LOGGER_KEY != key:
+        with _RECEIVE_LOGGER_LOCK:
+            if _RECEIVE_LOGGER is None or _RECEIVE_LOGGER_KEY != key:
+                name = f"{LOG.name} - {__name__}"
+                stale = LOG._loggers.pop(name, None)
+                if stale is not None:
+                    for handler in list(stale.handlers):
+                        stale.removeHandler(handler)
+                        handler.close()
+                _RECEIVE_LOGGER = LOG.create_logger(name)
+                _RECEIVE_LOGGER_KEY = key
+    return _RECEIVE_LOGGER
 
 
 def _split_csv(value: Any) -> Tuple[str, ...]:
@@ -374,14 +419,18 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
     def _handle_inbound_message(self, message: str) -> None:
         message = self.client.decode(message)
         peer = self._peer_label(self.client.peer)
+        log = _receive_logger()
         if (
                 message.msg_type == HiveMessageType.BUS
                 and message.payload.msg_type == "recognizer_loop:b64_audio"
         ):
-            LOG.debug(f"Received {peer} sent base64 audio for STT")
+            log.debug("Received %s sent base64 audio for STT", peer)
         else:
-            LOG.info("Received %s message: %s", peer, message.msg_type)
-            LOG.debug(f"Received {peer} message: {message}")
+            log.info("Received %s message: %s", peer, message.msg_type)
+            # Lazy args, never an f-string: ``HiveMessage.__str__`` serializes
+            # the whole envelope to JSON, and that must not run when DEBUG is
+            # off. It also keeps a user's transcribed speech out of the cost.
+            log.debug("Received %s message: %s", peer, message)
         self.hm_protocol.handle_message(message, self.client)
 
     def _peer_label(self, peer: str) -> str:
@@ -414,7 +463,8 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
             )
             self.close(code=1008, reason="invalid authorization")
             return
-        LOG.debug(f"Authorizing client from {self.source_ip or 'unknown'} - {useragent}")
+        _receive_logger().debug("Authorizing client from %s - %s",
+                                self.source_ip or "unknown", useragent)
 
         def do_send(payload: str, is_bin: bool):
             def _write():
@@ -508,9 +558,9 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
     def on_close(self):
         client = getattr(self, "client", None)
         if client is None:
-            LOG.debug(
-                f"closing unauthenticated websocket from {self.request.remote_ip} "
-                f"(no client was ever attached)"
+            _receive_logger().debug(
+                "closing unauthenticated websocket from %s "
+                "(no client was ever attached)", self.request.remote_ip
             )
             return
         # The age of the last pong cannot tell a ping timeout apart from a
@@ -524,13 +574,14 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
         since_pong = (
             time.monotonic() - self.last_pong if self.last_pong is not None else None
         )
-        LOG.info(
+        log = _receive_logger()
+        log.info(
             "disconnecting client: %s (close_code=%s, close_reason=%s, "
             "seconds_since_last_pong=%s)",
             self._peer_label(client.peer), self.close_code, self.close_reason,
             f"{since_pong:.1f}" if since_pong is not None else "unknown",
         )
-        LOG.debug(f"disconnecting client: {self._peer_label(client.peer)}")
+        log.debug("disconnecting client: %s", self._peer_label(client.peer))
         self.hm_protocol.handle_client_disconnected(client)
 
     def check_origin(self, origin) -> bool:
