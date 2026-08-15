@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.8a3](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.2.8a3) (2026-08-15)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.2.8a2...0.2.8a3)
+
+**Merged pull requests:**
+
+- perf: stop paying for discarded logs on connection hot paths [\#68](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/68) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.2.8a2](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.2.8a2) (2026-08-15)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.2.8a1...0.2.8a2)
