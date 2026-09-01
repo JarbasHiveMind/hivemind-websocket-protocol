@@ -54,7 +54,7 @@ def _handler(*, last_pong, ping_timeout=DEFAULT_WEBSOCKET_PING_TIMEOUT,
     handler.client = HiveMindClientConnection(
         key="s3cr3t-access-key",
         send_msg=lambda *a: None,
-        disconnect=lambda: None,
+        disconnect=lambda *a, **k: None,
         name="e2e",
         handshake=MagicMock(),
     )
