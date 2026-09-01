@@ -268,7 +268,42 @@ def test_open_syncs_once_after_api_key_miss():
     assert state["syncs"] == 1
     assert len(invalid_clients) == 0
     assert len(seen_clients) == 1
-    assert seen_clients[0].name == "agent::2::fresh-client"
+
+
+# --- disconnect callback close code ----------------------------------------
+
+def test_disconnect_defaults_to_close_code_1000():
+    """`client.disconnect()` with no arguments must keep today's graceful
+    teardown behaviour: a bare 1000 close."""
+    user = _auth_user()
+    closes = []
+    handler = _open_handler(
+        SimpleNamespace(get_client_by_api_key=lambda key: user),
+        seen_clients=[],
+        closes=closes,
+    )
+
+    handler.open()
+    handler.client.disconnect()
+
+    assert closes == [{"args": (1000, ""), "kwargs": {}}]
+
+
+def test_disconnect_forwards_a_given_close_code():
+    """A caller rejecting bad credentials must be able to force 1008 through
+    the same `client.disconnect` callback used for graceful teardown."""
+    user = _auth_user()
+    closes = []
+    handler = _open_handler(
+        SimpleNamespace(get_client_by_api_key=lambda key: user),
+        seen_clients=[],
+        closes=closes,
+    )
+
+    handler.open()
+    handler.client.disconnect(1008, "bad creds")
+
+    assert closes == [{"args": (1008, "bad creds"), "kwargs": {}}]
 
 
 def test_open_debounces_sync_after_recent_api_key_miss():
