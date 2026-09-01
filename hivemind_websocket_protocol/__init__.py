@@ -504,8 +504,8 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
 
             self.loop.add_callback(_write)
 
-        def do_disconnect():
-            self.loop.add_callback(self.close)
+        def do_disconnect(code=1000, reason=""):
+            self.loop.add_callback(lambda: self.close(code, reason))
 
         self.client = HiveMindClientConnection(
             key=key,
