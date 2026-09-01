@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.10a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.2.10a1) (2026-09-01)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.2.9a1...0.2.10a1)
+
+**Merged pull requests:**
+
+- fix: let the disconnect callback carry a websocket close code [\#73](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/73) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.2.9a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.2.9a1) (2026-08-15)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.2.8a4...0.2.9a1)
