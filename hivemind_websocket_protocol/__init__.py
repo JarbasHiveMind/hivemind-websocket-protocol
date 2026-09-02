@@ -434,10 +434,16 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
             return
         peer = self._peer_label(self.client.peer)
         log = _receive_logger()
-        if (
-                message.msg_type == HiveMessageType.BUS
-                and message.payload.msg_type == "recognizer_loop:b64_audio"
-        ):
+        is_b64_audio = False
+        if message.msg_type == HiveMessageType.BUS:
+            try:
+                is_b64_audio = message.payload.msg_type == "recognizer_loop:b64_audio"
+            except Exception:
+                # A malformed/typeless BUS payload can't be classified here;
+                # fall through to the normal log path and let
+                # ``handle_message`` apply its own graceful guard below.
+                is_b64_audio = False
+        if is_b64_audio:
             log.debug("Received %s sent base64 audio for STT", peer)
         else:
             log.info("Received %s message: %s", peer, message.msg_type)
