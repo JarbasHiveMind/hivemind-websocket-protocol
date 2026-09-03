@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.0a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/1.0.0a1) (2026-09-03)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.2.11a1...1.0.0a1)
+
+**Breaking changes:**
+
+- feat!: v3-Noise-only — drop crypto\_key/handshake\_enabled/require\_crypto legacy handling \(companion to hivemind-core \#309\) [\#79](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/79) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.2.11a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.2.11a1) (2026-09-02)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.2.10a2...0.2.11a1)
