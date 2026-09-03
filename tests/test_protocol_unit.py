@@ -114,7 +114,6 @@ def _auth_user(client_id=1, name="unit-client"):
     return SimpleNamespace(
         client_id=client_id,
         name=name,
-        crypto_key=None,
         skill_blacklist=[],
         intent_blacklist=[],
         allowed_types=["recognizer_loop:utterance"],
@@ -139,8 +138,6 @@ def _open_handler(db, key="api-key", seen_clients=None,
         # PEM per connection. None is the right stand-in: these tests never
         # run a handshake, and a real key costs a 2048-bit import each time.
         identity_rsa_key=None,
-        handshake_enabled=True,
-        require_crypto=False,
         handle_new_client=seen_clients.append,
         handle_invalid_key_connected=invalid_clients.append,
         handle_invalid_protocol_version=lambda client: None,

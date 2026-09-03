@@ -548,34 +548,22 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
             return
 
         self.client.name = f"{useragent}::{user.client_id}::{user.name}"
-        self.client.crypto_key = user.crypto_key
         self.client.allowed_types = user.allowed_types
         self.client.can_broadcast = user.can_broadcast
         self.client.can_propagate = user.can_propagate
         self.client.can_escalate = user.can_escalate
         self.client.is_admin = user.is_admin
         if user.password:
-            # pre-shared password to derive aes_key
+            # password derives the v3 Noise pre-shared key
             self.client.pswd_handshake = _password_handshake(user.password)
 
         self.client.node_type = HiveMindNodeType.NODE  # TODO . placeholder
 
-        if (
-                not self.client.crypto_key
-                and not self.hm_protocol.handshake_enabled
-                and self.hm_protocol.require_crypto
-        ):
-            LOG.error(
-                "No pre-shared crypto key for client and handshake disabled, "
-                "but configured to require crypto!"
-            )
-            # clients requiring handshake support might fail here
-            self.hm_protocol.handle_invalid_protocol_version(self.client)
-            # Permanent for the same reason a bad key is: neither the server
-            # config nor the client's capabilities change between attempts.
-            self.close(code=1008, reason="crypto required, no usable key")
-            return
-
+        # The v3 Noise handshake is the sole transport crypto (HIVEMIND-CRYPTO-1
+        # §3.4). handle_new_client refuses a connection that cannot complete it
+        # (no Noise module or no password to derive the PSK) with a 1008 close;
+        # there is no legacy pre-shared-key / handshake_enabled fallback to gate
+        # on here.
         self.hm_protocol.handle_new_client(self.client)
         # self.write_message(Message("connected").serialize())
 
