@@ -432,6 +432,11 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
             )
             self.close(code=1008, reason="invalid message")
             return
+        if message is None:
+            # a protocol-v3 Noise multi-frame chunk that only advanced an
+            # in-progress reassembly: there is no complete HiveMessage to
+            # dispatch yet, so keep receiving.
+            return
         peer = self._peer_label(self.client.peer)
         log = _receive_logger()
         is_b64_audio = False
