@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.1a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/1.0.1a1) (2026-09-04)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/1.0.0a1...1.0.1a1)
+
+**Merged pull requests:**
+
+- fix: skip incomplete multi-frame Noise chunks in the inbound handler [\#81](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/81) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [1.0.0a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/1.0.0a1) (2026-09-03)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.2.11a1...1.0.0a1)
