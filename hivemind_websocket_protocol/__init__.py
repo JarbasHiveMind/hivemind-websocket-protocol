@@ -24,7 +24,6 @@ from ovos_utils.xdg_utils import xdg_data_home
 from poorman_handshake import PasswordHandShake, check_password_strength
 from tornado import ioloop
 from tornado import web
-from tornado.platform.asyncio import AnyThreadEventLoopPolicy
 from tornado.websocket import WebSocketHandler
 from tornado.websocket import WebSocketClosedError, WebSocketHandler
 
