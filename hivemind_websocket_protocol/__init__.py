@@ -1,3 +1,4 @@
+"""Implements the WebSocket binding of HIVEMIND-TRANSPORT-1 §3."""
 import asyncio
 import dataclasses
 import hashlib
