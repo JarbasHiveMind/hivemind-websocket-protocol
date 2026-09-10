@@ -574,3 +574,19 @@ def test_run_ssl_path_generates_missing_cert(tmp_path):
     assert not t.is_alive()
     assert (cert_dir / "gen-me.crt").exists()
     assert (cert_dir / "gen-me.key").exists()
+
+
+# --- on_pong refreshes last_seen -------------------------------------------
+
+def test_on_pong_updates_last_seen_for_connected_client():
+    seen = []
+    hm_protocol = SimpleNamespace(update_last_seen=seen.append)
+    client = SimpleNamespace(peer="unit-client")
+
+    handler = HiveMindTornadoWebSocket.__new__(HiveMindTornadoWebSocket)
+    handler.hm_protocol = hm_protocol
+    handler.client = client
+
+    handler.on_pong(b"")
+
+    assert seen == [client]

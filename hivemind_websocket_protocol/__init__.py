@@ -463,6 +463,10 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
 
     def on_pong(self, data: bytes) -> None:
         self.last_pong = time.monotonic()
+        client = getattr(self, "client", None)
+        if client is not None:
+            self.hm_protocol.update_last_seen(client)
+
     def _current_peer_label(self) -> str:
         client = getattr(self, "client", None)
         return self._peer_label(getattr(client, "peer", "unknown"))
