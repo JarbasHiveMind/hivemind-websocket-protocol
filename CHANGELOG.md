@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.2a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/1.0.2a1) (2026-09-10)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/1.0.1a3...1.0.2a1)
+
+**Merged pull requests:**
+
+- fix: refresh last\_seen on websocket pong [\#85](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/85) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [1.0.1a3](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/1.0.1a3) (2026-09-10)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/1.0.1a2...1.0.1a3)
