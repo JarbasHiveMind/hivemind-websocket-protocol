@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.1a3](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/1.0.1a3) (2026-09-10)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/1.0.1a2...1.0.1a3)
+
+**Merged pull requests:**
+
+- chore: drop the unused AnyThreadEventLoopPolicy import [\#83](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/83) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [1.0.1a2](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/1.0.1a2) (2026-09-10)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/1.0.1a1...1.0.1a2)
@@ -242,6 +250,42 @@
 **Merged pull requests:**
 
 - chore: Configure Renovate [\#5](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/5) ([renovate[bot]](https://github.com/apps/renovate))
+
+## [0.0.3](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.0.3) (2025-04-26)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.0.3a1...0.0.3)
+
+**Merged pull requests:**
+
+- Release 0.0.3a1 [\#4](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/4) ([github-actions[bot]](https://github.com/apps/github-actions))
+
+## [0.0.3a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.0.3a1) (2025-04-26)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.0.2...0.0.3a1)
+
+**Merged pull requests:**
+
+- fix: read is\_admin from db [\#3](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/3) ([JarbasAl](https://github.com/JarbasAl))
+
+## [0.0.2](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.0.2) (2024-12-29)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.0.2a1...0.0.2)
+
+**Merged pull requests:**
+
+- Release 0.0.2a1 [\#2](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/2) ([github-actions[bot]](https://github.com/apps/github-actions))
+
+## [0.0.2a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.0.2a1) (2024-12-29)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/0.0.1...0.0.2a1)
+
+**Merged pull requests:**
+
+- fix:dataclass [\#1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/1) ([JarbasAl](https://github.com/JarbasAl))
+
+## [0.0.1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/0.0.1) (2024-12-28)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/3c7f5766be3b0e1efdba71ef6b966a40b21d5595...0.0.1)
 
 
 
