@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.2a2](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/1.0.2a2) (2026-09-13)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/1.0.2a1...1.0.2a2)
+
+**Merged pull requests:**
+
+- chore: raise hivescope floor to \>=0.8.6a1 [\#90](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/90) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [1.0.2a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/1.0.2a1) (2026-09-10)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/1.0.1a3...1.0.2a1)
