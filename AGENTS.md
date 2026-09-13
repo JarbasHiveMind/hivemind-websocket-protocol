@@ -26,9 +26,9 @@ wire protocol), hivescope (the in-process test harness used by the e2e suite).
 - Set up a throwaway environment inside your clone; never touch a shared venv:
   `python3 -m venv .venv && VIRTUAL_ENV=$PWD/.venv uv pip install -e ".[test]" --prerelease=allow`
 - Run the suite in the foreground: `python3 -m pytest tests -q`.
-  The `[test]` extra pins `hivescope>=0.7.1a1` — below that floor, uv resolves
-  hivescope 0.6.1a3, whose `InProcessHiveShim` has no `.password` attribute,
-  and every e2e test errors at handshake setup. If e2e tests fail on import or
+  The `[test]` extra pins `hivescope>=0.8.6a1` — below that floor the
+  `InProcessHiveShim` has no `.key` attribute (and below 0.7.1a1 no
+  `.password`), and every e2e test errors at handshake setup. If e2e tests fail on import or
   handshake, check the resolved hivescope version before assuming a code bug.
 - `uv`, never `pip`. If latest prereleases fail to install or resolve, that is a
   bug to FIX at the source, not to work around with a pin downgrade.
@@ -102,9 +102,10 @@ wire protocol), hivescope (the in-process test harness used by the e2e suite).
   when the level is disabled.
 - **e2e tests need the hivescope floor.** `tests/e2e/` boots a real hub through
   hivescope's `MasterNode`/`single_satellite` scenarios and the in-process
-  `InProcessHiveShim`. That shim only grew a `.password` attribute at
-  `hivescope>=0.7.1a1`, which `hivemind-core`'s `handle_new_client` reads;
-  below the floor every e2e test errors at handshake setup, not at the
+  `InProcessHiveShim`. That shim grew a `.password` attribute at
+  `hivescope>=0.7.1a1`, which `hivemind-core`'s `handle_new_client` reads,
+  and a `.key` attribute at `hivescope>=0.8.6a1`, which
+  `hivemind-bus-client` reads; below the floor every e2e test errors at handshake setup, not at the
   assertion. Never lower this floor to make a resolution failure go away.
 - **Never add a new bus message type.** This plugin transports HiveMessage
   frames; it does not define new message types or new wire semantics on its

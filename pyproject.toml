@@ -32,10 +32,11 @@ test = [
     "hivemind-bus-client",
     "ovos-bus-client",
     "ovos-utils",
-    # >=0.7.1a1 carries InProcessHiveShim.password, which hivemind-core reads
-    # in handle_new_client; without the floor uv resolves the older 0.6.1a3
-    # and every e2e test errors at handshake setup.
-    "hivescope>=0.7.1a1",
+    # >=0.8.6a1 carries InProcessHiveShim.key beside .password (0.7.1a1).
+    # hivemind-core reads .password in handle_new_client and
+    # hivemind-bus-client reads .key; below the floor every e2e test errors
+    # at handshake setup.
+    "hivescope>=0.8.6a1",
 ]
 
 [project.urls]
