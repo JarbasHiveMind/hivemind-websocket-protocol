@@ -401,6 +401,27 @@ class ClientDatabaseSync:
                 self._last_error = None
 
 
+#: RFC 6455 §5.5: a control frame carries at most 125 payload bytes, and a close
+#: frame spends two of them on the status code.
+MAX_CLOSE_REASON_BYTES = 123
+
+
+def _fit_close_reason(reason):
+    """Cut a close reason to fit one close frame, on a character boundary.
+
+    Tornado raises ValueError instead of sending an oversized control frame,
+    and it does so inside the IOLoop callback, so the peer gets no close at
+    all. hivemind-core passes abort reasons through unchanged and logs the
+    full text itself, so only the copy on the wire is shortened.
+    """
+    if not reason:
+        return reason
+    data = reason.encode("utf-8")
+    if len(data) <= MAX_CLOSE_REASON_BYTES:
+        return reason
+    return data[:MAX_CLOSE_REASON_BYTES].decode("utf-8", errors="ignore")
+
+
 class HiveMindTornadoWebSocket(WebSocketHandler):
     """
     WebSocket handler for managing HiveMind client connections.
@@ -408,6 +429,7 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
     Attributes:
         hm_protocol (Optional[HiveMindListenerProtocol]): The protocol instance for handling HiveMind messages.
     """
+
     hm_protocol = None
     source_ip: Optional[str] = None
     last_pong: Optional[float] = None
@@ -422,6 +444,11 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
     _unauth_rejections: "Deque[float]" = deque()
     _unauth_rejection_by_ip: Dict[str, float] = {}
     _unauth_rejection_lock = threading.Lock()
+
+    def close(self, code=None, reason=None):
+        """Close with the reason cut to fit one control frame (see
+        ``_fit_close_reason``)."""
+        super().close(code, _fit_close_reason(reason))
 
     def _client_ip(self) -> Optional[str]:
         return resolve_client_ip(
