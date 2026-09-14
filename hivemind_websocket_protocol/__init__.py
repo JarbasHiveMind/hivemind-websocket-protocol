@@ -8,11 +8,11 @@ import os.path
 import random
 import threading
 import time
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from os import makedirs
 from os.path import exists, join
 from socket import gethostname
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Deque, Dict, Optional, Tuple
 
 import pybase64
 from hivemind_bus_client.message import HiveMessageType
@@ -70,6 +70,17 @@ class _UnauthenticatedPeer:
         self.peer = peer
         self.rejection_recorded = False
 
+
+#: How many pre-authorization rejections may reach the operator ring in one
+#: window, and how long that window is. Core keeps the last 100 rejections of
+#: every kind in one ring. A rejection before authorization costs the caller
+#: nothing, so without a limit anyone can push the 100 rows an operator needs
+#: out of the ring with garbage credentials. These two give the
+#: unauthenticated kind its own budget: a flood can take at most
+#: ``UNAUTHENTICATED_REJECTION_BUDGET`` of the 100 slots per window, and the
+#: post-connection rejections that cost something to make keep the rest.
+UNAUTHENTICATED_REJECTION_BUDGET = 10
+UNAUTHENTICATED_REJECTION_WINDOW = 60.0
 
 DEFAULT_TRUSTED_HEADERS = "x-forwarded-for,x-real-ip"
 DEFAULT_WEBSOCKET_PING_INTERVAL = 30.0
@@ -405,6 +416,12 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
     _last_sync_error: Optional[Exception] = None
     _sync_debounce_s = 1.0
     db_sync = ClientDatabaseSync()
+    #: Timestamps of the pre-authorization rejections written to the ring in
+    #: the current window, and the last write per caller address. Shared by
+    #: every handler instance, because the ring is shared too.
+    _unauth_rejections: "Deque[float]" = deque()
+    _unauth_rejection_by_ip: Dict[str, float] = {}
+    _unauth_rejection_lock = threading.Lock()
 
     def _client_ip(self) -> Optional[str]:
         return resolve_client_ip(
@@ -497,10 +514,54 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
         if recorder is None:
             return
         peer = self.source_ip or self.request.remote_ip or "unknown"
+        if not self._unauthenticated_rejection_budget(peer):
+            # The close below still runs, and the WARNING above still names
+            # every refused connection. Only the ring row is dropped.
+            LOG.debug("rejection ring budget spent, not recording %s", peer)
+            return
         try:
             recorder(_UnauthenticatedPeer(peer), code, reason)
         except Exception:
             LOG.exception("could not record the rejection of %s", peer)
+
+    @classmethod
+    def _unauthenticated_rejection_budget(cls, peer: str) -> bool:
+        """Say if this pre-authorization rejection may reach the ring.
+
+        The ring in core holds the last 100 rejections of every kind. A
+        rejection before authorization is free to provoke, so a caller with
+        garbage credentials could otherwise empty the ring of the rows an
+        operator needs. The unauthenticated kind therefore has its own
+        budget instead of a share of the ring: at most
+        ``UNAUTHENTICATED_REJECTION_BUDGET`` rows per
+        ``UNAUTHENTICATED_REJECTION_WINDOW`` seconds, and at most one row per
+        caller address in that window.
+
+        A per-address limit alone is not enough, because a flood from many
+        addresses still fills the ring; a budget alone lets one address spend
+        it. Both together bound what any flood can evict, whatever its size.
+
+        Returns:
+            True when the caller may write a row, False when the budget is
+            spent. The close and the WARNING log line do not depend on this.
+        """
+        now = time.monotonic()
+        cutoff = now - UNAUTHENTICATED_REJECTION_WINDOW
+        with cls._unauth_rejection_lock:
+            while cls._unauth_rejections and cls._unauth_rejections[0] <= cutoff:
+                cls._unauth_rejections.popleft()
+            # The address map is pruned here too, so a flood from many
+            # addresses cannot grow it without bound.
+            for addr in [a for a, ts in cls._unauth_rejection_by_ip.items()
+                         if ts <= cutoff]:
+                del cls._unauth_rejection_by_ip[addr]
+            if cls._unauth_rejection_by_ip.get(peer, cutoff) > cutoff:
+                return False
+            if len(cls._unauth_rejections) >= UNAUTHENTICATED_REJECTION_BUDGET:
+                return False
+            cls._unauth_rejections.append(now)
+            cls._unauth_rejection_by_ip[peer] = now
+            return True
 
     def on_pong(self, data: bytes) -> None:
         self.last_pong = time.monotonic()
