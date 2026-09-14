@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.3a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/1.0.3a1) (2026-09-14)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/1.0.2a2...1.0.3a1)
+
+**Merged pull requests:**
+
+- fix: record a connection refused before authorization in the rejection ring [\#92](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/92) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [1.0.2a2](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/1.0.2a2) (2026-09-13)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/1.0.2a1...1.0.2a2)
