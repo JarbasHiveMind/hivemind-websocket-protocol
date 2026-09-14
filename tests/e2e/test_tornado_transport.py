@@ -165,6 +165,41 @@ def test_malformed_authorization_query_rejected(tornado_server):
     assert not tornado_server.listener.clients
 
 
+def test_malformed_authorization_reaches_the_core_rejection_ring(tornado_server):
+    """The operator's ring must show an attempt refused before authorization.
+
+    This close happens before a client connection exists, so no core handler
+    runs on it. The transport records it instead, and this reads the real ring
+    back off the listener to prove the record arrives.
+    """
+    listener = tornado_server.listener
+    if not hasattr(listener, "get_recent_rejections"):
+        pytest.skip("this hivemind-core has no rejection ring")
+    before = len(listener.get_recent_rejections())
+
+    sock = ws_client.create_connection(
+        f"{tornado_server.url}/?authorization=!!!not-base64!!!",
+        timeout=3,
+    )
+    sock.settimeout(2)
+    try:
+        sock.recv()
+    except Exception:
+        pass
+    sock.close()
+
+    entries = _wait(
+        lambda: (listener.get_recent_rejections()
+                 if len(listener.get_recent_rejections()) > before else None),
+        timeout=3,
+    )
+    assert entries, "the refused connection never reached the ring"
+    assert entries[0]["code"] == 1008
+    # "invalid_authorization" is not one of the names this core knows, so it
+    # is stored as "other". A core that learns the name stores it as it is.
+    assert entries[0]["reason"] in ("invalid_authorization", "other")
+
+
 def test_empty_authorization_query_rejected(tornado_server):
     """Missing authorization param must also be rejected cleanly."""
     sock = ws_client.create_connection(

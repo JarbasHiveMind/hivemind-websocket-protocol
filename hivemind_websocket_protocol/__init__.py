@@ -53,6 +53,24 @@ from hivemind_websocket_protocol.health import (
     LocalHealthHandler,
 )
 
+
+class _UnauthenticatedPeer:
+    """The stand-in a rejection with no client connection is recorded under.
+
+    ``HiveMindListenerProtocol.record_rejection`` reads ``peer`` and
+    ``rejection_recorded`` only. A websocket refused before authorization has
+    no ``HiveMindClientConnection`` to give it, so this carries the caller
+    address as the peer. One instance per rejection, so the once-only guard
+    in core holds for it too.
+    """
+
+    __slots__ = ("peer", "rejection_recorded")
+
+    def __init__(self, peer: str):
+        self.peer = peer
+        self.rejection_recorded = False
+
+
 DEFAULT_TRUSTED_HEADERS = "x-forwarded-for,x-real-ip"
 DEFAULT_WEBSOCKET_PING_INTERVAL = 30.0
 DEFAULT_WEBSOCKET_PING_TIMEOUT = 20.0
@@ -461,6 +479,29 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
     def _peer_label(self, peer: str) -> str:
         return f"{peer} ({self.source_ip})" if self.source_ip else peer
 
+    def _record_unauthenticated_rejection(self, code: int, reason: str) -> None:
+        """Put a rejection with no client connection in core's ring.
+
+        ``HiveMindListenerProtocol.record_rejection`` reads two attributes,
+        ``peer`` and ``rejection_recorded``. A connection that is refused
+        before authorization has no ``HiveMindClientConnection``, so this
+        gives the call a stand-in that carries the caller address as the peer.
+
+        The reason goes through unchanged: core keeps the names it knows and
+        stores every other name as ``"other"``, so this needs no edit when
+        core learns the name. A core too old for the ring has no
+        ``record_rejection`` and nothing is recorded. Recording must never
+        stop the close, so every error here is logged and dropped.
+        """
+        recorder = getattr(self.hm_protocol, "record_rejection", None)
+        if recorder is None:
+            return
+        peer = self.source_ip or self.request.remote_ip or "unknown"
+        try:
+            recorder(_UnauthenticatedPeer(peer), code, reason)
+        except Exception:
+            LOG.exception("could not record the rejection of %s", peer)
+
     def on_pong(self, data: bytes) -> None:
         self.last_pong = time.monotonic()
         client = getattr(self, "client", None)
@@ -494,6 +535,10 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
                 f"bad authorization ({e.__class__.__name__}: {e}) "
                 f"len={len(auth) if auth is not None else 0}"
             )
+            # This close happens before a HiveMindClientConnection exists, so
+            # no core handler runs on it and the operator's rejection ring
+            # never shows the attempt. Record it here instead.
+            self._record_unauthenticated_rejection(1008, "invalid_authorization")
             self.close(code=1008, reason="invalid authorization")
             return
         _receive_logger().debug("Authorizing client from %s - %s",
