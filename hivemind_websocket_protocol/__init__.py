@@ -7,6 +7,7 @@ import os
 import os.path
 import random
 import threading
+import traceback
 import time
 from collections import OrderedDict, deque
 from os import makedirs
@@ -422,6 +423,32 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
     _unauth_rejections: "Deque[float]" = deque()
     _unauth_rejection_by_ip: Dict[str, float] = {}
     _unauth_rejection_lock = threading.Lock()
+
+    def _request_summary(self) -> str:
+        """Keep the authorization out of Tornado's request log.
+
+        The credential travels as a query parameter -- ``open()`` reads it with
+        ``get_query_argument("authorization")`` -- and Tornado's default
+        summary is ``"%s %s (%s)" % (method, uri, remote_ip)``, so every
+        connection wrote ``?authorization=<base64(name:key)>`` to the access
+        log. The path carries everything an operator needs from that line.
+        """
+        return (f"{self.request.method} {self.request.path} "
+                f"({self.request.remote_ip})")
+
+    def log_exception(self, typ, value, tb) -> None:
+        """And out of the uncaught-exception log.
+
+        Tornado's exception logger prints ``self.request`` directly, and
+        ``HTTPServerRequest.__repr__`` includes the URI -- so redacting the
+        summary above alone still leaks the credential the moment anything
+        raises. ``HTTPError`` keeps Tornado's own handling, which does not
+        print the request.
+        """
+        if isinstance(value, web.HTTPError):
+            return super().log_exception(typ, value, tb)
+        LOG.error("Uncaught exception %s\n%s", self._request_summary(),
+                  "".join(traceback.format_exception(typ, value, tb)))
 
     def _client_ip(self) -> Optional[str]:
         return resolve_client_ip(
