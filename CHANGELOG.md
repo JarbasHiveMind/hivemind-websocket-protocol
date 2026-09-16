@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.0.4a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/1.0.4a1) (2026-09-16)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/1.0.3a1...1.0.4a1)
+
+**Merged pull requests:**
+
+- Keep the authorization query parameter out of Tornado's logs [\#94](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/94) ([goldyfruit](https://github.com/goldyfruit))
+- fix: cut a close reason to fit one websocket control frame [\#89](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/89) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [1.0.3a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/1.0.3a1) (2026-09-14)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/1.0.2a2...1.0.3a1)
