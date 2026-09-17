@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.5a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/1.0.5a1) (2026-09-17)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/1.0.4a1...1.0.5a1)
+
+**Merged pull requests:**
+
+- fix: accept a bytes or surrogate close reason and log a failed close [\#96](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/96) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [1.0.4a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/1.0.4a1) (2026-09-16)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/1.0.3a1...1.0.4a1)
