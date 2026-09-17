@@ -414,10 +414,20 @@ def _fit_close_reason(reason):
     and it does so inside the IOLoop callback, so the peer gets no close at
     all. hivemind-core passes abort reasons through unchanged and logs the
     full text itself, so only the copy on the wire is shortened.
+
+    Tornado also calls ``reason.encode("utf-8")``. A bytes reason has no
+    ``encode`` and a lone surrogate cannot be encoded, and both raise in the
+    same callback. So bytes are decoded, and characters that UTF-8 cannot
+    carry are replaced.
     """
     if not reason:
         return reason
-    data = reason.encode("utf-8")
+    if isinstance(reason, (bytes, bytearray)):
+        reason = bytes(reason).decode("utf-8", errors="replace")
+    elif not isinstance(reason, str):
+        reason = str(reason)
+    data = reason.encode("utf-8", errors="replace")
+    reason = data.decode("utf-8")
     if len(data) <= MAX_CLOSE_REASON_BYTES:
         return reason
     return data[:MAX_CLOSE_REASON_BYTES].decode("utf-8", errors="ignore")
@@ -476,6 +486,20 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
         """Close with the reason cut to fit one control frame (see
         ``_fit_close_reason``)."""
         super().close(code, _fit_close_reason(reason))
+
+    def _close_in_callback(self, code=None, reason=None):
+        """Close from an IOLoop callback, and log a failure.
+
+        An exception in a callback does not reach the code that asked for the
+        disconnect, so without this log line a failed close is silent.
+        """
+        try:
+            self.close(code, reason)
+        except Exception as exc:
+            LOG.warning(
+                "Could not close websocket (code=%s): %s: %r",
+                code, type(exc).__name__, exc,
+            )
 
     def _client_ip(self) -> Optional[str]:
         return resolve_client_ip(
@@ -680,7 +704,7 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
             self.loop.add_callback(_write)
 
         def do_disconnect(code=1000, reason=""):
-            self.loop.add_callback(lambda: self.close(code, reason))
+            self.loop.add_callback(self._close_in_callback, code, reason)
 
         self.client = HiveMindClientConnection(
             key=key,
