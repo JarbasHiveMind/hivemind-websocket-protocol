@@ -18,7 +18,7 @@ from hivemind_websocket_protocol import (
 )
 from hivescope.node import MasterNode
 
-from tests.test_protocol_unit import _free_port
+from test_protocol_unit import _free_port
 
 
 def _run_until_settings_loaded(proto):

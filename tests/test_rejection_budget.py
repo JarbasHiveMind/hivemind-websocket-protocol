@@ -15,7 +15,7 @@ import pytest
 import hivemind_websocket_protocol as hwp
 from hivemind_websocket_protocol import HiveMindTornadoWebSocket
 
-from tests.test_rejection_recording import BAD_AUTH, _handler, _Recorder
+from test_rejection_recording import BAD_AUTH, _handler, _Recorder
 
 
 class _Clock:
