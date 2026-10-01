@@ -1,33 +1,211 @@
+"""Implements the WebSocket binding of HIVEMIND-TRANSPORT-1 §3."""
 import asyncio
 import dataclasses
+import hashlib
+import math
 import os
 import os.path
 import random
+import threading
+import traceback
+import time
+from collections import OrderedDict, deque
 from os import makedirs
 from os.path import exists, join
 from socket import gethostname
-from typing import Dict, Any, Optional, Tuple
+from typing import Any, Deque, Dict, Optional, Tuple
 
 import pybase64
-from OpenSSL import crypto
+from hivemind_bus_client.message import HiveMessageType
 from hivemind_plugin_manager.protocols import NetworkProtocol
+from OpenSSL import crypto
 from ovos_bus_client.session import Session
 from ovos_utils.log import LOG
 from ovos_utils.xdg_utils import xdg_data_home
-from poorman_handshake import PasswordHandShake
+from poorman_handshake import PasswordHandShake, check_password_strength
 from tornado import ioloop
 from tornado import web
-from tornado.platform.asyncio import AnyThreadEventLoopPolicy
 from tornado.websocket import WebSocketHandler
+from tornado.websocket import WebSocketClosedError, WebSocketHandler
 
-from hivemind_bus_client.message import HiveMessageType
+try:
+    from hivemind_core.config import runtime_password_min_bits
+except ImportError:  # released hivemind-core without the helper
+    import os
+
+    def runtime_password_min_bits():
+        return 0.0 if os.environ.get("HIVEMIND_DISABLE_PASSWORD_STRENGTH_CHECK", "").strip().lower() in ("1", "true", "yes", "on") else 40.0
+
 from hivemind_core.protocol import (
-    HiveMindListenerProtocol,
     HiveMindClientConnection,
-    HiveMindNodeType
+    HiveMindListenerProtocol,
+    HiveMindNodeType,
 )
-from hivemind_plugin_manager.protocols import ClientCallbacks
 from hivemind_plugin_manager.database import Client
+from hivemind_plugin_manager.protocols import ClientCallbacks
+
+from hivemind_websocket_protocol._client_ip import (
+    parse_networks,
+    resolve_client_ip,
+)
+from hivemind_websocket_protocol.health import (
+    LOCAL_HEALTH_PATH,
+    HiveMindWebApplication,
+    LocalHealthHandler,
+)
+
+
+class _UnauthenticatedPeer:
+    """The stand-in a rejection with no client connection is recorded under.
+
+    ``HiveMindListenerProtocol.record_rejection`` reads ``peer`` and
+    ``rejection_recorded`` only. A websocket refused before authorization has
+    no ``HiveMindClientConnection`` to give it, so this carries the caller
+    address as the peer. One instance per rejection, so the once-only guard
+    in core holds for it too.
+    """
+
+    __slots__ = ("peer", "rejection_recorded")
+
+    def __init__(self, peer: str):
+        self.peer = peer
+        self.rejection_recorded = False
+
+
+#: How many pre-authorization rejections may reach the operator ring in one
+#: window, and how long that window is. Core keeps the last 100 rejections of
+#: every kind in one ring. A rejection before authorization costs the caller
+#: nothing, so without a limit anyone can push the 100 rows an operator needs
+#: out of the ring with garbage credentials. These two give the
+#: unauthenticated kind its own budget: a flood can take at most
+#: ``UNAUTHENTICATED_REJECTION_BUDGET`` of the 100 slots per window, and the
+#: post-connection rejections that cost something to make keep the rest.
+UNAUTHENTICATED_REJECTION_BUDGET = 10
+UNAUTHENTICATED_REJECTION_WINDOW = 60.0
+
+DEFAULT_TRUSTED_HEADERS = "x-forwarded-for,x-real-ip"
+DEFAULT_WEBSOCKET_PING_INTERVAL = 30.0
+DEFAULT_WEBSOCKET_PING_TIMEOUT = 20.0
+
+
+#: Passwords already checked against a given policy, most recent last.
+#:
+#: ``PasswordHandShake(password, min_bits=N)`` runs the credential through
+#: zxcvbn on construction. That is the right thing to do, but it is ~2.2 ms
+#: and Core builds one per admission on the single Tornado IOLoop, so a fleet
+#: reconnecting at once serialises behind it: 400 satellites is ~0.87 s of
+#: event loop spent re-deciding that the same handful of passwords are still
+#: strong.
+#:
+#: Entries are keyed on a *keyed* blake2s digest and the policy that accepted
+#: it. The key is per-process and never persisted, so this is an LRU lookup
+#: key, not a stored password hash; rotating a password or tightening
+#: ``min_bits`` misses the cache and re-validates.
+_PASSWORD_STRENGTH_LOCK = threading.Lock()
+_PASSWORD_STRENGTH_CACHE: "OrderedDict[Tuple[bytes, float], None]" = OrderedDict()
+_PASSWORD_STRENGTH_CACHE_KEY = os.urandom(32)
+_PASSWORD_STRENGTH_CACHE_SIZE = 4096
+
+
+def _password_handshake(password: str,
+                        min_bits: Optional[float] = None) -> PasswordHandShake:
+    """Build a PasswordHandShake, validating each password once per policy.
+
+    Raises ``WeakPasswordError`` exactly as the plain constructor does -- a
+    weak password is never cached, so it is rejected on every attempt.
+    """
+    if min_bits is None:
+        min_bits = runtime_password_min_bits()
+
+    if min_bits > 0:
+        digest = hashlib.blake2s(
+            password.encode("utf-8"),
+            key=_PASSWORD_STRENGTH_CACHE_KEY,
+        ).digest()
+        cache_key = (digest, min_bits)
+        with _PASSWORD_STRENGTH_LOCK:
+            if cache_key in _PASSWORD_STRENGTH_CACHE:
+                _PASSWORD_STRENGTH_CACHE.move_to_end(cache_key)
+            else:
+                # Outside the cache-hit branch on purpose: a rejection must
+                # propagate and must not be remembered as a pass.
+                check_password_strength(password, min_bits=min_bits)
+                _PASSWORD_STRENGTH_CACHE[cache_key] = None
+                while len(_PASSWORD_STRENGTH_CACHE) > _PASSWORD_STRENGTH_CACHE_SIZE:
+                    _PASSWORD_STRENGTH_CACHE.popitem(last=False)
+
+    # Already validated above; min_bits=0 skips the duplicate zxcvbn run.
+    return PasswordHandShake(password, min_bits=0)
+#: Connection hot-path logger, resolved once.
+#:
+#: ``LOG.debug``/``LOG.info`` resolve the calling module, function and line
+#: with ``inspect.stack()`` on *every* call, before the level is checked, so a
+#: discarded DEBUG record costs the same as an emitted one. Admission, receive
+#: and disconnect all run on Tornado's single IOLoop that serves every
+#: connected satellite, so that cost is paid per connection and per inbound
+#: frame, and delays every other peer on the node.
+#:
+#: ``LOG.create_logger`` returns the same OVOS-configured logger those calls
+#: would have used -- same formatter, stdout and rotating-file handlers -- and
+#: registers it in ``LOG._loggers``, so a later ``LOG.init``/``LOG.set_level``
+#: still retargets its level. Only the per-call stack walk is dropped. It is
+#: resolved lazily because ``LOG.init`` usually runs after this import.
+_RECEIVE_LOGGER = None
+_RECEIVE_LOGGER_KEY = None
+_RECEIVE_LOGGER_LOCK = threading.Lock()
+
+
+def _receive_logger():
+    """Return the cached hot-path logger, rebuilding when LOG rewires.
+
+    Cached against ``(LOG.name, LOG.base_path)``: ``LOG.init()`` normally runs
+    after import, and a logger created before it would carry only the stdout
+    handler -- configured file logging would silently vanish from this path,
+    because init does not rebuild handlers on existing loggers. When the
+    fingerprint changes, the stale entry and its handlers are dropped so
+    ``create_logger`` rebuilds against the live config. The lock keeps two
+    racing first frames from attaching duplicate handlers to the same
+    process-wide ``logging.getLogger`` name.
+    """
+    global _RECEIVE_LOGGER, _RECEIVE_LOGGER_KEY
+    key = (LOG.name, LOG.base_path)
+    if _RECEIVE_LOGGER is None or _RECEIVE_LOGGER_KEY != key:
+        with _RECEIVE_LOGGER_LOCK:
+            if _RECEIVE_LOGGER is None or _RECEIVE_LOGGER_KEY != key:
+                name = f"{LOG.name} - {__name__}"
+                stale = LOG._loggers.pop(name, None)
+                if stale is not None:
+                    for handler in list(stale.handlers):
+                        stale.removeHandler(handler)
+                        handler.close()
+                _RECEIVE_LOGGER = LOG.create_logger(name)
+                _RECEIVE_LOGGER_KEY = key
+    return _RECEIVE_LOGGER
+
+
+def _split_csv(value: Any) -> Tuple[str, ...]:
+    if not value:
+        return ()
+    if isinstance(value, str):
+        return tuple(v.strip() for v in value.split(",") if v.strip())
+    return tuple(str(v).strip() for v in value if str(v).strip())
+
+
+def _non_negative_float(value: Any, default: float, name: str) -> float:
+    if value is None:
+        return default
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        LOG.warning(f"Ignoring invalid {name}: {value!r}")
+        return default
+    if not math.isfinite(parsed):
+        LOG.warning(f"Ignoring invalid {name}: {value!r}")
+        return default
+    if parsed < 0:
+        LOG.warning(f"Ignoring negative {name}: {value!r}")
+        return default
+    return parsed
 
 
 @dataclasses.dataclass
@@ -42,11 +220,50 @@ class HiveMindWebsocketProtocol(NetworkProtocol):
     hm_protocol: Optional[HiveMindListenerProtocol] = None
     callbacks: ClientCallbacks = dataclasses.field(default_factory=ClientCallbacks)
 
+    def _websocket_ping_settings(self) -> Dict[str, float]:
+        interval = self.config.get(
+            "websocket_ping_interval",
+            os.getenv("HIVEMIND_WEBSOCKET_PING_INTERVAL"),
+        )
+        timeout = self.config.get(
+            "websocket_ping_timeout",
+            os.getenv("HIVEMIND_WEBSOCKET_PING_TIMEOUT"),
+        )
+        return {
+            "websocket_ping_interval": _non_negative_float(
+                interval,
+                DEFAULT_WEBSOCKET_PING_INTERVAL,
+                "websocket_ping_interval",
+            ),
+            "websocket_ping_timeout": _non_negative_float(
+                timeout,
+                DEFAULT_WEBSOCKET_PING_TIMEOUT,
+                "websocket_ping_timeout",
+            ),
+        }
+
     def run(self):
         LOG.debug(f"websocket server config: {self.config}")
-        asyncio.set_event_loop_policy(AnyThreadEventLoopPolicy())
-        HiveMindTornadoWebSocket.loop = ioloop.IOLoop.current()
+        asyncio_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(asyncio_loop)
+        loop = ioloop.IOLoop.current()
+        HiveMindTornadoWebSocket.loop = loop
         HiveMindTornadoWebSocket.hm_protocol = self.hm_protocol
+
+        if "trusted_proxy_cidrs" in self.config:
+            proxy_cidrs = self.config["trusted_proxy_cidrs"]
+        else:
+            proxy_cidrs = os.getenv("HIVEMIND_TRUSTED_PROXY_CIDRS")
+
+        if "trusted_client_ip_headers" in self.config:
+            client_ip_headers = self.config["trusted_client_ip_headers"]
+        else:
+            client_ip_headers = (
+                os.getenv("HIVEMIND_TRUSTED_CLIENT_IP_HEADERS")
+                or DEFAULT_TRUSTED_HEADERS
+            )
+        trusted_networks = parse_networks(_split_csv(proxy_cidrs))
+        trusted_headers = tuple(h.lower() for h in _split_csv(client_ip_headers))
 
         ssl = self.config.get("ssl", False)
         cert_dir: str = self.config.get("cert_dir") or f"{xdg_data_home()}/hivemind"
@@ -55,25 +272,47 @@ class HiveMindWebsocketProtocol(NetworkProtocol):
         host = host.split("://")[-1]
         port = int(self.config.get("port") or self.identity.default_port or 5678)
 
-        routes: list = [("/", HiveMindTornadoWebSocket)]
-        application = web.Application(routes)
-        if ssl:
-            cert_file = f"{cert_dir}/{cert_name}.crt"
-            key_file = f"{cert_dir}/{cert_name}.key"
-            if not os.path.isfile(key_file):
-                LOG.info(f"generating self-signed SSL certificate")
-                cert_file, key_file = self.create_self_signed_cert(cert_dir, cert_name)
-            LOG.debug("using ssl key at " + key_file)
-            LOG.debug("using ssl certificate at " + cert_file)
-            ssl_options = {"certfile": cert_file, "keyfile": key_file}
+        routes: list = [
+            (LOCAL_HEALTH_PATH, LocalHealthHandler),
+            ("/", HiveMindTornadoWebSocket),
+        ]
+        websocket_ping_settings = self._websocket_ping_settings()
+        application = HiveMindWebApplication(
+            routes,
+            trusted_networks=trusted_networks,
+            trusted_headers=trusted_headers,
+            **websocket_ping_settings,
+        )
+        startup_error: Optional[Exception] = None
 
-            LOG.info("wss listener started")
-            application.listen(port, host, ssl_options=ssl_options)
-        else:
-            LOG.info("ws listener started")
-            application.listen(port, host)
+        def start_listener() -> None:
+            nonlocal startup_error
+            try:
+                if ssl:
+                    cert_file = f"{cert_dir}/{cert_name}.crt"
+                    key_file = f"{cert_dir}/{cert_name}.key"
+                    if not os.path.isfile(key_file):
+                        LOG.info("generating self-signed SSL certificate")
+                        cert_file, key_file = self.create_self_signed_cert(
+                            cert_dir, cert_name
+                        )
+                    LOG.debug("using ssl key at " + key_file)
+                    LOG.debug("using ssl certificate at " + cert_file)
+                    ssl_options = {"certfile": cert_file, "keyfile": key_file}
+                    application.listen(port, host, ssl_options=ssl_options)
+                    LOG.info("wss listener started")
+                else:
+                    application.listen(port, host)
+                    LOG.info("ws listener started")
+            except Exception as e:
+                startup_error = e
+                LOG.exception("failed to start websocket listener")
+                loop.stop()
 
-        HiveMindTornadoWebSocket.loop.start()  # blocking
+        loop.add_callback(start_listener)
+        loop.start()  # blocking
+        if startup_error is not None:
+            raise startup_error
 
     @staticmethod
     def create_self_signed_cert(
@@ -114,13 +353,84 @@ class HiveMindWebsocketProtocol(NetworkProtocol):
             cert.gmtime_adj_notAfter(10 * 365 * 24 * 60 * 60)
             cert.set_issuer(cert.get_subject())
             cert.set_pubkey(k)
-            # TODO: Don't use SHA1
-            cert.sign(k, "sha1")
+            cert.sign(k, "sha256")
 
             open(cert_path, "wb").write(crypto.dump_certificate(crypto.FILETYPE_PEM, cert))
             open(key_path, "wb").write(crypto.dump_privatekey(crypto.FILETYPE_PEM, k))
 
         return cert_path, key_path
+
+
+class ClientDatabaseSync:
+    """Collapses concurrent ``db.sync()`` calls into one per ``debounce_s``.
+
+    An api-key miss makes every connection want a fresh database. Without
+    this, a burst of unknown keys becomes a burst of syncs. One instance is
+    shared by every connection on the server, so the state is deliberately
+    process-wide rather than per-handler.
+
+    A failing sync is remembered for the rest of the window and re-raised at
+    the callers that arrive during it, rather than each of them retrying a
+    database that has just proven unreachable.
+    """
+
+    def __init__(self, debounce_s: float = 1.0):
+        self.debounce_s = debounce_s
+        self._lock = threading.Lock()
+        self._last_ts: Optional[float] = None
+        self._last_error: Optional[Exception] = None
+
+    def reset(self) -> None:
+        with self._lock:
+            self._last_ts = None
+            self._last_error = None
+
+    def sync(self, db: Any) -> None:
+        with self._lock:
+            now = time.monotonic()
+            if self._last_ts is not None and now - self._last_ts < self.debounce_s:
+                if self._last_error is not None:
+                    raise self._last_error
+                return
+            self._last_ts = now
+            try:
+                db.sync()
+            except Exception as exc:
+                self._last_error = exc
+                raise
+            else:
+                self._last_error = None
+
+
+#: RFC 6455 §5.5: a control frame carries at most 125 payload bytes, and a close
+#: frame spends two of them on the status code.
+MAX_CLOSE_REASON_BYTES = 123
+
+
+def _fit_close_reason(reason):
+    """Cut a close reason to fit one close frame, on a character boundary.
+
+    Tornado raises ValueError instead of sending an oversized control frame,
+    and it does so inside the IOLoop callback, so the peer gets no close at
+    all. hivemind-core passes abort reasons through unchanged and logs the
+    full text itself, so only the copy on the wire is shortened.
+
+    Tornado also calls ``reason.encode("utf-8")``. A bytes reason has no
+    ``encode`` and a lone surrogate cannot be encoded, and both raise in the
+    same callback. So bytes are decoded, and characters that UTF-8 cannot
+    carry are replaced.
+    """
+    if not reason:
+        return reason
+    if isinstance(reason, (bytes, bytearray)):
+        reason = bytes(reason).decode("utf-8", errors="replace")
+    elif not isinstance(reason, str):
+        reason = str(reason)
+    data = reason.encode("utf-8", errors="replace")
+    reason = data.decode("utf-8")
+    if len(data) <= MAX_CLOSE_REASON_BYTES:
+        return reason
+    return data[:MAX_CLOSE_REASON_BYTES].decode("utf-8", errors="ignore")
 
 
 class HiveMindTornadoWebSocket(WebSocketHandler):
@@ -130,7 +440,74 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
     Attributes:
         hm_protocol (Optional[HiveMindListenerProtocol]): The protocol instance for handling HiveMind messages.
     """
+
     hm_protocol = None
+    source_ip: Optional[str] = None
+    last_pong: Optional[float] = None
+    _sync_lock = threading.Lock()
+    _last_sync_ts = 0.0
+    _last_sync_error: Optional[Exception] = None
+    _sync_debounce_s = 1.0
+    db_sync = ClientDatabaseSync()
+    #: Timestamps of the pre-authorization rejections written to the ring in
+    #: the current window, and the last write per caller address. Shared by
+    #: every handler instance, because the ring is shared too.
+    _unauth_rejections: "Deque[float]" = deque()
+    _unauth_rejection_by_ip: Dict[str, float] = {}
+    _unauth_rejection_lock = threading.Lock()
+
+    def _request_summary(self) -> str:
+        """Keep the authorization out of Tornado's request log.
+
+        The credential travels as a query parameter -- ``open()`` reads it with
+        ``get_query_argument("authorization")`` -- and Tornado's default
+        summary is ``"%s %s (%s)" % (method, uri, remote_ip)``, so every
+        connection wrote ``?authorization=<base64(name:key)>`` to the access
+        log. The path carries everything an operator needs from that line.
+        """
+        return (f"{self.request.method} {self.request.path} "
+                f"({self.request.remote_ip})")
+
+    def log_exception(self, typ, value, tb) -> None:
+        """And out of the uncaught-exception log.
+
+        Tornado's exception logger prints ``self.request`` directly, and
+        ``HTTPServerRequest.__repr__`` includes the URI -- so redacting the
+        summary above alone still leaks the credential the moment anything
+        raises. ``HTTPError`` keeps Tornado's own handling, which does not
+        print the request.
+        """
+        if isinstance(value, web.HTTPError):
+            return super().log_exception(typ, value, tb)
+        LOG.error("Uncaught exception %s\n%s", self._request_summary(),
+                  "".join(traceback.format_exception(typ, value, tb)))
+
+    def close(self, code=None, reason=None):
+        """Close with the reason cut to fit one control frame (see
+        ``_fit_close_reason``)."""
+        super().close(code, _fit_close_reason(reason))
+
+    def _close_in_callback(self, code=None, reason=None):
+        """Close from an IOLoop callback, and log a failure.
+
+        An exception in a callback does not reach the code that asked for the
+        disconnect, so without this log line a failed close is silent.
+        """
+        try:
+            self.close(code, reason)
+        except Exception as exc:
+            LOG.warning(
+                "Could not close websocket (code=%s): %s: %r",
+                code, type(exc).__name__, exc,
+            )
+
+    def _client_ip(self) -> Optional[str]:
+        return resolve_client_ip(
+            getattr(self.request, "remote_ip", None),
+            self.request.headers,
+            self.settings.get("trusted_networks", ()),
+            self.settings.get("trusted_headers", ()),
+        )
 
     @staticmethod
     def decode_auth(auth: str) -> Tuple[str, str]:
@@ -143,43 +520,191 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
         Returns:
             Tuple[str, str]: The decoded username and key.
         """
-        userpass_encoded = bytes(auth, encoding="utf-8")
-        userpass_decoded = pybase64.b64decode(userpass_encoded).decode("utf-8")
-        name, key = userpass_decoded.split(":")
+        decoded = pybase64.b64decode(auth or "", validate=True).decode("utf-8")
+        name, key = decoded.split(":", 1)
+        if not name or not key:
+            raise ValueError("empty credentials")
         return name, key
 
     def on_message(self, message: str) -> None:
-        """
-        Handle incoming messages from the WebSocket.
+        self._handle_inbound_message(message)
 
-        Args:
-            message (str): The incoming message.
-        """
-        message = self.client.decode(message)
-        if (
-                message.msg_type == HiveMessageType.BUS
-                and message.payload.msg_type == "recognizer_loop:b64_audio"
-        ):
-            LOG.info(f"Received {self.client.peer} sent base64 audio for STT")
+    def _handle_inbound_message(self, message: str) -> None:
+        try:
+            message = self.client.decode(message)
+        except Exception as e:
+            # Never log the raw frame here: decode() failures happen on
+            # ciphertext / encoded payloads that can carry credentials or
+            # other sensitive content, and an unguarded traceback (the
+            # previous behavior, since this propagated out of Tornado's
+            # on_message) would put that content in the logs.
+            LOG.warning(
+                "rejecting inbound message from %s: decode failed (%s)",
+                self._peer_label(getattr(self.client, "peer", "unknown")),
+                type(e).__name__,
+            )
+            self.close(code=1008, reason="invalid message")
+            return
+        if message is None:
+            # a protocol-v3 Noise multi-frame chunk that only advanced an
+            # in-progress reassembly: there is no complete HiveMessage to
+            # dispatch yet, so keep receiving.
+            return
+        peer = self._peer_label(self.client.peer)
+        log = _receive_logger()
+        is_b64_audio = False
+        if message.msg_type == HiveMessageType.BUS:
+            try:
+                is_b64_audio = message.payload.msg_type == "recognizer_loop:b64_audio"
+            except Exception:
+                # A malformed/typeless BUS payload can't be classified here;
+                # fall through to the normal log path and let
+                # ``handle_message`` apply its own graceful guard below.
+                is_b64_audio = False
+        if is_b64_audio:
+            log.debug("Received %s sent base64 audio for STT", peer)
         else:
-            LOG.info(f"Received {self.client.peer} message: {message}")
+            log.info("Received %s message: %s", peer, message.msg_type)
+            # Lazy args, never an f-string: ``HiveMessage.__str__`` serializes
+            # the whole envelope to JSON, and that must not run when DEBUG is
+            # off. It also keeps a user's transcribed speech out of the cost.
+            log.debug("Received %s message: %s", peer, message)
         self.hm_protocol.handle_message(message, self.client)
+
+    def _peer_label(self, peer: str) -> str:
+        return f"{peer} ({self.source_ip})" if self.source_ip else peer
+
+    def _record_unauthenticated_rejection(self, code: int, reason: str) -> None:
+        """Put a rejection with no client connection in core's ring.
+
+        ``HiveMindListenerProtocol.record_rejection`` reads two attributes,
+        ``peer`` and ``rejection_recorded``. A connection that is refused
+        before authorization has no ``HiveMindClientConnection``, so this
+        gives the call a stand-in that carries the caller address as the peer.
+
+        The reason goes through unchanged: core keeps the names it knows and
+        stores every other name as ``"other"``, so this needs no edit when
+        core learns the name. A core too old for the ring has no
+        ``record_rejection`` and nothing is recorded. Recording must never
+        stop the close, so every error here is logged and dropped.
+        """
+        recorder = getattr(self.hm_protocol, "record_rejection", None)
+        if recorder is None:
+            return
+        peer = self.source_ip or self.request.remote_ip or "unknown"
+        if not self._unauthenticated_rejection_budget(peer):
+            # The close below still runs, and the WARNING above still names
+            # every refused connection. Only the ring row is dropped.
+            LOG.debug("rejection ring budget spent, not recording %s", peer)
+            return
+        try:
+            recorder(_UnauthenticatedPeer(peer), code, reason)
+        except Exception:
+            LOG.exception("could not record the rejection of %s", peer)
+
+    @classmethod
+    def _unauthenticated_rejection_budget(cls, peer: str) -> bool:
+        """Say if this pre-authorization rejection may reach the ring.
+
+        The ring in core holds the last 100 rejections of every kind. A
+        rejection before authorization is free to provoke, so a caller with
+        garbage credentials could otherwise empty the ring of the rows an
+        operator needs. The unauthenticated kind therefore has its own
+        budget instead of a share of the ring: at most
+        ``UNAUTHENTICATED_REJECTION_BUDGET`` rows per
+        ``UNAUTHENTICATED_REJECTION_WINDOW`` seconds, and at most one row per
+        caller address in that window.
+
+        A per-address limit alone is not enough, because a flood from many
+        addresses still fills the ring; a budget alone lets one address spend
+        it. Both together bound what any flood can evict, whatever its size.
+
+        Returns:
+            True when the caller may write a row, False when the budget is
+            spent. The close and the WARNING log line do not depend on this.
+        """
+        now = time.monotonic()
+        cutoff = now - UNAUTHENTICATED_REJECTION_WINDOW
+        with cls._unauth_rejection_lock:
+            while cls._unauth_rejections and cls._unauth_rejections[0] <= cutoff:
+                cls._unauth_rejections.popleft()
+            # The address map is pruned here too, so a flood from many
+            # addresses cannot grow it without bound.
+            for addr in [a for a, ts in cls._unauth_rejection_by_ip.items()
+                         if ts <= cutoff]:
+                del cls._unauth_rejection_by_ip[addr]
+            if cls._unauth_rejection_by_ip.get(peer, cutoff) > cutoff:
+                return False
+            if len(cls._unauth_rejections) >= UNAUTHENTICATED_REJECTION_BUDGET:
+                return False
+            cls._unauth_rejections.append(now)
+            cls._unauth_rejection_by_ip[peer] = now
+            return True
+
+    def on_pong(self, data: bytes) -> None:
+        self.last_pong = time.monotonic()
+        client = getattr(self, "client", None)
+        if client is not None:
+            self.hm_protocol.update_last_seen(client)
+
+    def _current_peer_label(self) -> str:
+        client = getattr(self, "client", None)
+        return self._peer_label(getattr(client, "peer", "unknown"))
+
+    @classmethod
+    def _sync_client_database(cls, db: Any) -> None:
+        cls.db_sync.sync(db)
 
     def open(self) -> None:
         """
         Handle a new client connection and perform authorization.
         """
-        auth = self.request.uri.split("/?authorization=")[-1]
-        useragent, key = self.decode_auth(auth)
-        LOG.info(f"Authorizing client - {useragent}:{key}")
+        self.last_pong = time.monotonic()
+        self.source_ip = self._client_ip()
+        auth = self.get_query_argument("authorization", None)
+        try:
+            useragent, key = self.decode_auth(auth)
+        except (ValueError, UnicodeDecodeError) as e:
+            # Never log `auth` itself: it is the base64 "name:secret_key"
+            # blob, so logging it in any recoverable form would leak the
+            # credential. A length is enough to diagnose truncated/garbled
+            # headers without exposing the secret.
+            LOG.warning(
+                f"rejecting websocket from {self.source_ip or self.request.remote_ip}: "
+                f"bad authorization ({e.__class__.__name__}: {e}) "
+                f"len={len(auth) if auth is not None else 0}"
+            )
+            # This close happens before a HiveMindClientConnection exists, so
+            # no core handler runs on it and the operator's rejection ring
+            # never shows the attempt. Record it here instead.
+            self._record_unauthenticated_rejection(1008, "invalid_authorization")
+            self.close(code=1008, reason="invalid authorization")
+            return
+        _receive_logger().debug("Authorizing client from %s - %s",
+                                self.source_ip or "unknown", useragent)
 
         def do_send(payload: str, is_bin: bool):
-            self.loop.install()  # TODO is this needed?
-            self.write_message(payload, is_bin)
+            def _write():
+                try:
+                    self.write_message(payload, is_bin)
+                except WebSocketClosedError:
+                    LOG.debug(
+                        "Websocket already closed while writing to "
+                        f"{self._peer_label(getattr(self.client, 'peer', 'unknown'))}"
+                    )
+                    self.close()
+                except Exception as exc:
+                    LOG.warning(
+                        "Could not write websocket message to "
+                        f"{self._peer_label(getattr(self.client, 'peer', 'unknown'))}: "
+                        f"{type(exc).__name__}: {exc!r}"
+                    )
+                    self.close()
 
-        def do_disconnect():
-            self.loop.install()  # TODO is this needed?
-            self.close()
+            self.loop.add_callback(_write)
+
+        def do_disconnect(code=1000, reason=""):
+            self.loop.add_callback(self._close_in_callback, code, reason)
 
         self.client = HiveMindClientConnection(
             key=key,
@@ -189,51 +714,80 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
             name=useragent,
             hm_protocol=self.hm_protocol
         )
-        self.hm_protocol.db.sync()
         user: Client = self.hm_protocol.db.get_client_by_api_key(key)
+        sync_error = False
+        if not user:
+            try:
+                self._sync_client_database(self.hm_protocol.db)
+            except Exception:
+                sync_error = True
+                LOG.exception("Client database sync failed while retrying api key lookup")
+            else:
+                user = self.hm_protocol.db.get_client_by_api_key(key)
 
         if not user:
+            if sync_error:
+                LOG.error("Client database unavailable during api key lookup")
+                self.close(code=1011, reason="client database unavailable")
+                return
             LOG.error("Client provided an invalid api key")
             self.hm_protocol.handle_invalid_key_connected(self.client)
-            self.close()
+            # Say *why*, with the same code a malformed authorization header
+            # gets above. A bare close is indistinguishable from a network
+            # drop, so a satellite treats a refused key as a transient fault
+            # and reconnects forever, printing raw close frames and never
+            # telling its operator the credentials are wrong.
+            self.close(code=1008, reason="invalid api key")
             return
 
         self.client.name = f"{useragent}::{user.client_id}::{user.name}"
-        self.client.crypto_key = user.crypto_key
-        self.client.msg_blacklist = user.message_blacklist or []
-        self.client.skill_blacklist = user.skill_blacklist or []
-        self.client.intent_blacklist = user.intent_blacklist or []
         self.client.allowed_types = user.allowed_types
         self.client.can_broadcast = user.can_broadcast
         self.client.can_propagate = user.can_propagate
         self.client.can_escalate = user.can_escalate
         self.client.is_admin = user.is_admin
         if user.password:
-            # pre-shared password to derive aes_key
-            self.client.pswd_handshake = PasswordHandShake(user.password)
+            # password derives the v3 Noise pre-shared key
+            self.client.pswd_handshake = _password_handshake(user.password)
 
         self.client.node_type = HiveMindNodeType.NODE  # TODO . placeholder
 
-        if (
-                not self.client.crypto_key
-                and not self.hm_protocol.handshake_enabled
-                and self.hm_protocol.require_crypto
-        ):
-            LOG.error(
-                "No pre-shared crypto key for client and handshake disabled, "
-                "but configured to require crypto!"
-            )
-            # clients requiring handshake support might fail here
-            self.hm_protocol.handle_invalid_protocol_version(self.client)
-            self.close()
-            return
-
+        # The v3 Noise handshake is the sole transport crypto (HIVEMIND-CRYPTO-1
+        # §3.4). handle_new_client refuses a connection that cannot complete it
+        # (no Noise module or no password to derive the PSK) with a 1008 close;
+        # there is no legacy pre-shared-key / handshake_enabled fallback to gate
+        # on here.
         self.hm_protocol.handle_new_client(self.client)
         # self.write_message(Message("connected").serialize())
 
     def on_close(self):
-        LOG.info(f"disconnecting client: {self.client.peer}")
-        self.hm_protocol.handle_client_disconnected(self.client)
+        client = getattr(self, "client", None)
+        if client is None:
+            _receive_logger().debug(
+                "closing unauthenticated websocket from %s "
+                "(no client was ever attached)", self.request.remote_ip
+            )
+            return
+        # The age of the last pong cannot tell a ping timeout apart from a
+        # client that simply went away: tornado pings at T, waits ping_timeout
+        # and then closes, so a real ping timeout shows an age of
+        # ping_interval + ping_timeout - round_trip_time, which overlaps the
+        # ages seen on ordinary disconnects. close_reason does not help either,
+        # since tornado fills it in from the close frame the peer echoes back,
+        # and a peer that timed out echoes nothing. Report the numbers and let
+        # the operator read them; a guess here would only mislead.
+        since_pong = (
+            time.monotonic() - self.last_pong if self.last_pong is not None else None
+        )
+        log = _receive_logger()
+        log.info(
+            "disconnecting client: %s (close_code=%s, close_reason=%s, "
+            "seconds_since_last_pong=%s)",
+            self._peer_label(client.peer), self.close_code, self.close_reason,
+            f"{since_pong:.1f}" if since_pong is not None else "unknown",
+        )
+        log.debug("disconnecting client: %s", self._peer_label(client.peer))
+        self.hm_protocol.handle_client_disconnected(client)
 
     def check_origin(self, origin) -> bool:
         return True
