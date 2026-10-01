@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.6a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/1.0.6a1) (2026-10-01)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/1.0.5a1...1.0.6a1)
+
+**Merged pull requests:**
+
+- fix\(tests\): register the fixtures from tests/, so the suite imports the wheel [\#98](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/98) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [1.0.5a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/1.0.5a1) (2026-09-17)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/1.0.4a1...1.0.5a1)
