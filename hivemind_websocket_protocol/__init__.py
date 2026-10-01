@@ -783,7 +783,7 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
         log.info(
             "disconnecting client: %s (close_code=%s, close_reason=%s, "
             "seconds_since_last_pong=%s)",
-            self._peer_label(client.peer), self.close_code, self.close_reason,
+            self._peer_label(client.peer), self.close_code, repr(self.close_reason),
             f"{since_pong:.1f}" if since_pong is not None else "unknown",
         )
         log.debug("disconnecting client: %s", self._peer_label(client.peer))
