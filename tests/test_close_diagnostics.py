@@ -99,9 +99,31 @@ def test_close_reports_code_reason_and_pong_age(monkeypatch):
 
     message = _logged(log)
     assert "close_code=1006" in message
-    assert "close_reason=abnormal closure" in message
+    assert "close_reason='abnormal closure'" in message
     assert "seconds_since_last_pong=12.0" in message
     handler.hm_protocol.handle_client_disconnected.assert_called_once_with(handler.client)
+
+
+def test_close_reason_newline_cannot_forge_a_log_line(monkeypatch):
+    """tornado fills close_reason from the close frame the peer echoes back,
+    so it is attacker-influenced. A raw newline in it would split one log
+    record into two, with the attacker's text starting a fake line. The
+    reason must be repr()'d so embedded control characters are escaped."""
+    log = MagicMock()
+    monkeypatch.setattr(hwp, "_RECEIVE_LOGGER", log)
+    monkeypatch.setattr(hwp, "_RECEIVE_LOGGER_KEY",
+                        (hwp.LOG.name, hwp.LOG.base_path))
+    handler = _handler(
+        last_pong=time.monotonic() - 1,
+        close_code=1008,
+        close_reason="rejected\nBcc: attacker@evil.test",
+    )
+
+    handler.on_close()
+
+    message = _logged(log)
+    assert "\nBcc: attacker@evil.test" not in message
+    assert "\\n" in message
 
 
 def test_a_real_ping_timeout_is_reported_with_its_pong_age(monkeypatch):
