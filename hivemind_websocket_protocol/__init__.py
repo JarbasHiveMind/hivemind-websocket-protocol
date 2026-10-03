@@ -22,7 +22,7 @@ from OpenSSL import crypto
 from ovos_bus_client.session import Session
 from ovos_utils.log import LOG
 from ovos_utils.xdg_utils import xdg_data_home
-from poorman_handshake import PasswordHandShake, check_password_strength
+from poorman_handshake import PasswordHandShake, WeakPasswordError, check_password_strength
 from tornado import ioloop
 from tornado import web
 from tornado.websocket import WebSocketHandler
@@ -748,7 +748,21 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
         self.client.is_admin = user.is_admin
         if user.password:
             # password derives the v3 Noise pre-shared key
-            self.client.pswd_handshake = _password_handshake(user.password)
+            try:
+                self.client.pswd_handshake = _password_handshake(user.password)
+            except WeakPasswordError as error:
+                # The stored credential fails the configured strength floor.
+                # Left uncaught it escapes open() as an internal error and the
+                # socket is torn down with no reason, which the client cannot
+                # tell from a crash. Say why, and do not call
+                # handle_invalid_key_connected: that means the client
+                # presented bad credentials, and here it did not.
+                LOG.warning(
+                    f"rejecting websocket from {self.source_ip or self.request.remote_ip}: "
+                    f"stored password fails the strength policy ({error})"
+                )
+                self.close(code=1008, reason="password below strength policy")
+                return
 
         self.client.node_type = HiveMindNodeType.NODE  # TODO . placeholder
 
