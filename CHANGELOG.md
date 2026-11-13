@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.0.7a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/1.0.7a1) (2026-11-13)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/1.0.6a1...1.0.7a1)
+
+**Merged pull requests:**
+
+- fix: close with 1008 when a client's stored password fails the strength policy [\#101](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/101) ([goldyfruit](https://github.com/goldyfruit))
+- fix: escape close reason before logging it \(log forging\) [\#100](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/100) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [1.0.6a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/1.0.6a1) (2026-10-01)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/1.0.5a1...1.0.6a1)
