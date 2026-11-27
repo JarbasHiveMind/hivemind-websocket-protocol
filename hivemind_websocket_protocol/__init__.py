@@ -714,6 +714,8 @@ class HiveMindTornadoWebSocket(WebSocketHandler):
             name=useragent,
             hm_protocol=self.hm_protocol
         )
+        # set after construction: core releases before HiveMind-core#412 reject an ip kwarg
+        self.client.ip = self.source_ip
         user: Client = self.hm_protocol.db.get_client_by_api_key(key)
         sync_error = False
         if not user:

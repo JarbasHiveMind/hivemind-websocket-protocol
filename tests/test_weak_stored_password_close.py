@@ -78,3 +78,12 @@ def test_strong_stored_password_still_admits():
 
     handler.close.assert_not_called()
     handler.hm_protocol.handle_new_client.assert_called_once()
+
+
+def test_connection_carries_the_resolved_client_ip():
+    handler = _handler(_user(STRONG))
+    hwp._PASSWORD_STRENGTH_CACHE.clear()
+    with patch.object(hwp, "runtime_password_min_bits", return_value=64):
+        handler.open()
+
+    assert handler.client.ip == "203.0.113.7"
