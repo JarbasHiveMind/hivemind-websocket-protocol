@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.8a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/1.0.8a1) (2026-11-27)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/1.0.7a1...1.0.8a1)
+
+**Merged pull requests:**
+
+- fix: give the client connection its resolved source IP [\#104](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/pull/104) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [1.0.7a1](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/tree/1.0.7a1) (2026-11-13)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-websocket-protocol/compare/1.0.6a1...1.0.7a1)
