@@ -5,6 +5,8 @@ port; `HiveMessageBusClient` connects to it over WebSocket. Anything that
 asserts behaviour of the transport itself (auth, frames over the wire,
 on_close cleanup, query-string parsing) belongs here.
 """
+import os
+import tempfile
 import time
 
 import pybase64
@@ -13,6 +15,14 @@ import websocket as ws_client
 from ovos_bus_client.message import Message
 
 from hivemind_bus_client import HiveMessageBusClient
+from hivemind_bus_client.identity import NodeIdentity
+from json_database import JsonStorage
+
+_IDENTITY_DIR = tempfile.mkdtemp(prefix="hm-ws-e2e-")
+
+
+def _identity(name):
+    return NodeIdentity(identity_file=JsonStorage(os.path.join(_IDENTITY_DIR, f"{name}.json")))
 
 
 # --- helpers --------------------------------------------------------------
@@ -24,6 +34,7 @@ def _client(server, *, useragent="e2e", password=None, key=None):
         host=server.host,
         port=server.port,
         useragent=useragent,
+        identity=_identity(useragent),
         self_signed=False,
         compress=False,
         binarize=False,
@@ -103,6 +114,7 @@ def test_bad_api_key_is_rejected(tornado_server):
         host=tornado_server.host,
         port=tornado_server.port,
         useragent="bad-key",
+        identity=_identity("bad-key"),
         self_signed=False,
     )
     # bound the handshake retries so a rejected key fails fast instead of
